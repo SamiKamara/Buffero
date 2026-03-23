@@ -103,13 +103,14 @@ jobs:
             "is_prerelease=false" >> $env:GITHUB_OUTPUT
           }
           else {
-            @"
-Automated nightly build from `main`.
-
-- Commit: `$env:GITHUB_SHA
-- Workflow run: https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID
-- Asset: `${{ steps.package.outputs.asset_name }}
-"@ | Set-Content -Path $notesFile
+            $notes = @(
+              'Automated nightly build from `main`.',
+              '',
+              "- Commit: $env:GITHUB_SHA",
+              "- Workflow run: https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID",
+              '- Asset: ${{ steps.package.outputs.asset_name }}'
+            ) -join "`n"
+            Set-Content -Path $notesFile -Value $notes
 
             "release_tag=nightly" >> $env:GITHUB_OUTPUT
             "release_name=Buffero Nightly" >> $env:GITHUB_OUTPUT
