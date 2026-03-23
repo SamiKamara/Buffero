@@ -34,10 +34,11 @@ jobs:
         run: dotnet test .\Buffero.Tests\Buffero.Tests.csproj --configuration Release --no-build
 
       - name: Publish win-x64 build
-        id: publish
+        id: publish_app
         shell: pwsh
         run: |
           $publishDir = Join-Path $env:RUNNER_TEMP 'buffero-publish'
+
           if (Test-Path $publishDir) {
             Remove-Item $publishDir -Recurse -Force
           }
@@ -54,8 +55,8 @@ jobs:
         id: package
         shell: pwsh
         run: |
-          $releaseSuffix = if ('${{ github.ref_type }}' -eq 'tag') {
-            '${{ github.ref_name }}'
+          $releaseSuffix = if ($env:GITHUB_REF -like 'refs/tags/*') {
+            $env:GITHUB_REF_NAME
           }
           else {
             'nightly'
@@ -75,7 +76,7 @@ jobs:
           }
 
           New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
-          Copy-Item (Join-Path '${{ steps.publish.outputs.publish_dir }}' '*') -Destination $packageDir -Recurse
+          Copy-Item (Join-Path '${{ steps.publish_app.outputs.publish_dir }}' '*') -Destination $packageDir -Recurse
           Compress-Archive -Path $packageDir -DestinationPath $assetPath
 
           "asset_name=$assetName" >> $env:GITHUB_OUTPUT
@@ -89,24 +90,25 @@ jobs:
 
       - name: Prepare release metadata
         id: release_meta
-        if: ${{ github.ref_type == 'tag' || github.ref_name == 'main' }}
         shell: pwsh
         run: |
           $notesFile = Join-Path $env:RUNNER_TEMP 'release-notes.md'
 
-          if ('${{ github.ref_type }}' -eq 'tag') {
-            "release_tag=${{ github.ref_name }}" >> $env:GITHUB_OUTPUT
-            "release_name=Buffero ${{ github.ref_name }}" >> $env:GITHUB_OUTPUT
+          if ($env:GITHUB_REF -like 'refs/tags/*') {
+            $releaseTag = $env:GITHUB_REF_NAME
+            $releaseName = "Buffero $releaseTag"
+            Set-Content -Path $notesFile -Value "Automated release for $releaseTag."
+            "release_tag=$releaseTag" >> $env:GITHUB_OUTPUT
+            "release_name=$releaseName" >> $env:GITHUB_OUTPUT
             "is_prerelease=false" >> $env:GITHUB_OUTPUT
-            Set-Content -Path $notesFile -Value "Automated release for ${{ github.ref_name }}."
           }
           else {
             @"
 Automated nightly build from `main`.
 
-- Commit: `${{ github.sha }}`
-- Workflow run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-- Asset: `${{ steps.package.outputs.asset_name }}`
+- Commit: `$env:GITHUB_SHA
+- Workflow run: https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID
+- Asset: `${{ steps.package.outputs.asset_name }}
 "@ | Set-Content -Path $notesFile
 
             "release_tag=nightly" >> $env:GITHUB_OUTPUT
@@ -117,7 +119,6 @@ Automated nightly build from `main`.
           "release_notes_file=$notesFile" >> $env:GITHUB_OUTPUT
 
       - name: Publish GitHub release asset
-        if: ${{ github.ref_type == 'tag' || github.ref_name == 'main' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ steps.release_meta.outputs.release_tag }}
@@ -137,14 +138,14 @@ Automated nightly build from `main`.
                 --notes-file $env:RELEASE_NOTES_FILE `
                 --prerelease `
                 --latest=false `
-                --target '${{ github.sha }}'
+                --target $env:GITHUB_SHA
             }
             else {
               gh release upload $env:RELEASE_TAG $env:ASSET_PATH --clobber
               gh release edit $env:RELEASE_TAG `
                 --title $env:RELEASE_NAME `
                 --notes-file $env:RELEASE_NOTES_FILE `
-                --target '${{ github.sha }}'
+                --target $env:GITHUB_SHA
             }
           }
           else {
