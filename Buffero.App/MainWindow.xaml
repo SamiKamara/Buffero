@@ -1,0 +1,266 @@
+<Window x:Class="Buffero.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="Buffero MVP"
+        Width="1120"
+        Height="840"
+        MinWidth="960"
+        MinHeight="720"
+        WindowStartupLocation="CenterScreen"
+        Closing="Window_Closing">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <Grid Margin="20">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="2*" />
+                <ColumnDefinition Width="1.2*" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Row="0" Grid.ColumnSpan="2" Margin="0,0,0,16">
+                <TextBlock FontSize="26"
+                           FontWeight="SemiBold"
+                           Text="Buffero" />
+                <TextBlock Margin="0,4,0,0"
+                           Foreground="#555"
+                           Text="Windows replay-buffer MVP with tray controls, global hotkey, auto game detection, and ffmpeg-backed clip export." />
+            </StackPanel>
+
+            <Border Grid.Row="1"
+                    Grid.ColumnSpan="2"
+                    Padding="18"
+                    Margin="0,0,0,16"
+                    Background="#F6F7F8"
+                    BorderBrush="#D5D9DE"
+                    BorderThickness="1"
+                    CornerRadius="12">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel>
+                        <TextBlock FontSize="14"
+                                   FontWeight="Bold"
+                                   Text="{Binding StateName}" />
+                        <TextBlock Margin="0,6,0,0"
+                                   FontSize="22"
+                                   FontWeight="SemiBold"
+                                   Text="{Binding StatusMessage}" />
+                        <TextBlock Margin="0,6,0,0"
+                                   Foreground="#555"
+                                   Text="{Binding StatusDetails}" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1"
+                                Margin="20,0,0,0"
+                                Orientation="Horizontal"
+                                VerticalAlignment="Center">
+                        <Button Width="132"
+                                Height="36"
+                                Margin="0,0,10,0"
+                                Click="StartBuffering_Click"
+                                Content="Start Buffering" />
+                        <Button Width="132"
+                                Height="36"
+                                Margin="0,0,10,0"
+                                Click="StopBuffering_Click"
+                                Content="Stop Buffering" />
+                        <Button Width="132"
+                                Height="36"
+                                Click="SaveReplay_Click"
+                                Content="Save Replay" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <StackPanel Grid.Row="2" Grid.Column="0" Margin="0,0,16,0">
+                <GroupBox Margin="0,0,0,16" Header="Capture">
+                    <Grid Margin="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <StackPanel Margin="0,0,12,12">
+                            <TextBlock FontWeight="SemiBold" Text="Save Directory" />
+                            <DockPanel Margin="0,6,0,0">
+                                <Button Width="74"
+                                        DockPanel.Dock="Right"
+                                        Click="BrowseSaveFolder_Click"
+                                        Content="Browse" />
+                                <TextBox Margin="0,0,10,0"
+                                         Text="{Binding SaveDirectory, UpdateSourceTrigger=PropertyChanged}" />
+                            </DockPanel>
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="1" Margin="12,0,0,12">
+                            <TextBlock FontWeight="SemiBold" Text="ffmpeg Path" />
+                            <TextBox Margin="0,6,0,0"
+                                     Text="{Binding FfmpegPath, UpdateSourceTrigger=PropertyChanged}" />
+                        </StackPanel>
+
+                        <UniformGrid Grid.Row="1"
+                                     Grid.ColumnSpan="2"
+                                     Columns="4"
+                                     Margin="0,0,0,12">
+                            <StackPanel Margin="0,0,12,0">
+                                <TextBlock FontWeight="SemiBold" Text="Replay Seconds" />
+                                <TextBox Margin="0,6,0,0"
+                                         Text="{Binding BufferSeconds, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+                            <StackPanel Margin="0,0,12,0">
+                                <TextBlock FontWeight="SemiBold" Text="Segment Seconds" />
+                                <TextBox Margin="0,6,0,0"
+                                         Text="{Binding SegmentSeconds, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+                            <StackPanel Margin="0,0,12,0">
+                                <TextBlock FontWeight="SemiBold" Text="FPS" />
+                                <TextBox Margin="0,6,0,0"
+                                         Text="{Binding Fps, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+                            <StackPanel>
+                                <TextBlock FontWeight="SemiBold" Text="Quality CRF" />
+                                <TextBox Margin="0,6,0,0"
+                                         Text="{Binding QualityCrf, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+                        </UniformGrid>
+
+                        <UniformGrid Grid.Row="2"
+                                     Grid.ColumnSpan="2"
+                                     Columns="2">
+                            <StackPanel Margin="0,0,12,0">
+                                <TextBlock FontWeight="SemiBold" Text="Clip Pattern" />
+                                <TextBox Margin="0,6,0,0"
+                                         Text="{Binding ClipFilePattern, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+                            <StackPanel>
+                                <TextBlock FontWeight="SemiBold" Text="Max Temp Storage (GB)" />
+                                <TextBox Margin="0,6,0,0"
+                                         Text="{Binding MaxTempStorageGb, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+                        </UniformGrid>
+                    </Grid>
+                </GroupBox>
+
+                <GroupBox Margin="0,0,0,16" Header="Detection">
+                    <Grid Margin="12">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <CheckBox Content="Start Buffero automatically when Windows starts"
+                                  IsChecked="{Binding StartWithWindows}" />
+                        <CheckBox Grid.Row="1"
+                                  Margin="0,8,0,0"
+                                  Content="Enable auto-start when a configured game is found"
+                                  IsChecked="{Binding AutoStartEnabled}" />
+                        <CheckBox Grid.Row="2"
+                                  Margin="0,8,0,0"
+                                  Content="Require the configured game to be the foreground window"
+                                  IsChecked="{Binding RequireForegroundWindow}" />
+                        <StackPanel Grid.Row="3" Margin="0,12,0,0">
+                            <TextBlock FontWeight="SemiBold" Text="Configured Game Executables" />
+                            <TextBlock Margin="0,4,0,0"
+                                       Foreground="#666"
+                                       Text="One executable per line. Example: valorant.exe or cs2" />
+                            <TextBox Height="120"
+                                     Margin="0,8,0,0"
+                                     AcceptsReturn="True"
+                                     TextWrapping="Wrap"
+                                     VerticalScrollBarVisibility="Auto"
+                                     Text="{Binding AllowedExecutablesText, UpdateSourceTrigger=PropertyChanged}" />
+                        </StackPanel>
+                    </Grid>
+                </GroupBox>
+
+                <GroupBox Header="Hotkey">
+                    <Grid Margin="12">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <StackPanel Orientation="Horizontal">
+                            <CheckBox Margin="0,0,16,0"
+                                      Content="Ctrl"
+                                      IsChecked="{Binding HotkeyCtrl}" />
+                            <CheckBox Margin="0,0,16,0"
+                                      Content="Alt"
+                                      IsChecked="{Binding HotkeyAlt}" />
+                            <CheckBox Margin="0,0,16,0"
+                                      Content="Shift"
+                                      IsChecked="{Binding HotkeyShift}" />
+                            <ComboBox Width="110"
+                                      ItemsSource="{Binding SupportedHotkeyKeys}"
+                                      SelectedItem="{Binding SelectedHotkeyKey}" />
+                        </StackPanel>
+                        <TextBlock Grid.Row="1"
+                                   Margin="0,12,0,0"
+                                   Foreground="#555"
+                                   Text="{Binding HotkeyPreview}" />
+                    </Grid>
+                </GroupBox>
+            </StackPanel>
+
+            <StackPanel Grid.Row="2" Grid.Column="1">
+                <GroupBox Margin="0,0,0,16" Header="Actions">
+                    <WrapPanel Margin="12">
+                        <Button Width="150"
+                                Height="34"
+                                Margin="0,0,10,10"
+                                Click="ApplySettings_Click"
+                                Content="Save Settings" />
+                        <Button Width="150"
+                                Height="34"
+                                Margin="0,0,10,10"
+                                Click="OpenClipsFolder_Click"
+                                Content="Open Clips Folder" />
+                        <Button Width="150"
+                                Height="34"
+                                Margin="0,0,10,10"
+                                Click="OpenLogsFolder_Click"
+                                Content="Open Logs Folder" />
+                        <Button Width="150"
+                                Height="34"
+                                Margin="0,0,10,10"
+                                Click="HideToTray_Click"
+                                Content="Hide To Tray" />
+                    </WrapPanel>
+                </GroupBox>
+
+                <GroupBox Margin="0,0,0,16" Header="Diagnostics">
+                    <TextBox Margin="12"
+                             IsReadOnly="True"
+                             BorderThickness="0"
+                             Background="Transparent"
+                             TextWrapping="Wrap"
+                             VerticalScrollBarVisibility="Auto"
+                             Text="{Binding DiagnosticsText, Mode=OneWay}" />
+                </GroupBox>
+
+                <GroupBox Header="Recent Log">
+                    <Grid Margin="12">
+                        <ListBox Height="330"
+                                 ItemsSource="{Binding RecentLogLines}" />
+                    </Grid>
+                </GroupBox>
+            </StackPanel>
+        </Grid>
+    </ScrollViewer>
+</Window>
