@@ -89,7 +89,7 @@ jobs:
 
       - name: Prepare release metadata
         id: release_meta
-        if: github.ref_type == 'tag' || github.ref_name == 'main'
+        if: ${{ github.ref_type == 'tag' || github.ref_name == 'main' }}
         shell: pwsh
         run: |
           $notesFile = Join-Path $env:RUNNER_TEMP 'release-notes.md'
@@ -117,9 +117,9 @@ Automated nightly build from `main`.
           "release_notes_file=$notesFile" >> $env:GITHUB_OUTPUT
 
       - name: Publish GitHub release asset
-        if: github.ref_type == 'tag' || github.ref_name == 'main'
+        if: ${{ github.ref_type == 'tag' || github.ref_name == 'main' }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ steps.release_meta.outputs.release_tag }}
           RELEASE_NAME: ${{ steps.release_meta.outputs.release_name }}
           RELEASE_NOTES_FILE: ${{ steps.release_meta.outputs.release_notes_file }}
