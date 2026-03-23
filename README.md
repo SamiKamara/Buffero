@@ -2,7 +2,7 @@
 
 Buffero is a Windows-only replay buffer desktop app. It runs as a small tray utility, watches for configured games, keeps a rolling video buffer, and saves the last part of gameplay to MP4 when you press the save hotkey.
 
-The current design document source of truth is [Buffero Design Document.txt](C:/Users/samin/Desktop/Buffero/Buffero%20Design%20Document.txt).
+The current design document source of truth is [Buffero Design Document.txt](./Buffero%20Design%20Document.txt).
 
 ## Current state
 
@@ -83,6 +83,12 @@ Background launch:
 ```powershell
 dotnet test .\Buffero.Tests\Buffero.Tests.csproj
 ```
+
+## Releases
+
+- Push to `main` updates a rolling prerelease named `Buffero Nightly` with a downloadable `Buffero-win-x64-nightly.zip` asset in GitHub Releases.
+- Push a version tag like `v1.0.0` to create a versioned GitHub Release with a matching `Buffero-win-x64-v1.0.0.zip` asset.
+- The release workflow is defined in [.github/workflows/publish-release-build.yml](./.github/workflows/publish-release-build.yml).
 
 ## Main paths
 

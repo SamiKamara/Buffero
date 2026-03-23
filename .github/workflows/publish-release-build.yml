@@ -1,0 +1,164 @@
+name: Publish Release Build
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 9 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Restore
+        run: dotnet restore Buffero.sln
+
+      - name: Build
+        run: dotnet build Buffero.sln --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test .\Buffero.Tests\Buffero.Tests.csproj --configuration Release --no-build
+
+      - name: Publish win-x64 build
+        id: publish
+        shell: pwsh
+        run: |
+          $publishDir = Join-Path $env:RUNNER_TEMP 'buffero-publish'
+          if (Test-Path $publishDir) {
+            Remove-Item $publishDir -Recurse -Force
+          }
+
+          dotnet publish .\Buffero.App\Buffero.App.csproj `
+            --configuration Release `
+            --runtime win-x64 `
+            --self-contained true `
+            --output $publishDir
+
+          "publish_dir=$publishDir" >> $env:GITHUB_OUTPUT
+
+      - name: Package release zip
+        id: package
+        shell: pwsh
+        run: |
+          $releaseSuffix = if ('${{ github.ref_type }}' -eq 'tag') {
+            '${{ github.ref_name }}'
+          }
+          else {
+            'nightly'
+          }
+
+          $assetName = "Buffero-win-x64-$releaseSuffix.zip"
+          $packageRoot = Join-Path $env:RUNNER_TEMP 'buffero-package'
+          $packageDir = Join-Path $packageRoot 'Buffero'
+          $assetPath = Join-Path $env:RUNNER_TEMP $assetName
+
+          if (Test-Path $packageRoot) {
+            Remove-Item $packageRoot -Recurse -Force
+          }
+
+          if (Test-Path $assetPath) {
+            Remove-Item $assetPath -Force
+          }
+
+          New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
+          Copy-Item (Join-Path '${{ steps.publish.outputs.publish_dir }}' '*') -Destination $packageDir -Recurse
+          Compress-Archive -Path $packageDir -DestinationPath $assetPath
+
+          "asset_name=$assetName" >> $env:GITHUB_OUTPUT
+          "asset_path=$assetPath" >> $env:GITHUB_OUTPUT
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.asset_name }}
+          path: ${{ steps.package.outputs.asset_path }}
+
+      - name: Prepare release metadata
+        id: release_meta
+        if: github.ref_type == 'tag' || github.ref_name == 'main'
+        shell: pwsh
+        run: |
+          $notesFile = Join-Path $env:RUNNER_TEMP 'release-notes.md'
+
+          if ('${{ github.ref_type }}' -eq 'tag') {
+            "release_tag=${{ github.ref_name }}" >> $env:GITHUB_OUTPUT
+            "release_name=Buffero ${{ github.ref_name }}" >> $env:GITHUB_OUTPUT
+            "is_prerelease=false" >> $env:GITHUB_OUTPUT
+            Set-Content -Path $notesFile -Value "Automated release for ${{ github.ref_name }}."
+          }
+          else {
+            @"
+Automated nightly build from `main`.
+
+- Commit: `${{ github.sha }}`
+- Workflow run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+- Asset: `${{ steps.package.outputs.asset_name }}`
+"@ | Set-Content -Path $notesFile
+
+            "release_tag=nightly" >> $env:GITHUB_OUTPUT
+            "release_name=Buffero Nightly" >> $env:GITHUB_OUTPUT
+            "is_prerelease=true" >> $env:GITHUB_OUTPUT
+          }
+
+          "release_notes_file=$notesFile" >> $env:GITHUB_OUTPUT
+
+      - name: Publish GitHub release asset
+        if: github.ref_type == 'tag' || github.ref_name == 'main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release_meta.outputs.release_tag }}
+          RELEASE_NAME: ${{ steps.release_meta.outputs.release_name }}
+          RELEASE_NOTES_FILE: ${{ steps.release_meta.outputs.release_notes_file }}
+          IS_PRERELEASE: ${{ steps.release_meta.outputs.is_prerelease }}
+          ASSET_PATH: ${{ steps.package.outputs.asset_path }}
+        shell: pwsh
+        run: |
+          gh release view $env:RELEASE_TAG *> $null
+          $releaseExists = $LASTEXITCODE -eq 0
+
+          if ($env:IS_PRERELEASE -eq 'true') {
+            if (-not $releaseExists) {
+              gh release create $env:RELEASE_TAG $env:ASSET_PATH `
+                --title $env:RELEASE_NAME `
+                --notes-file $env:RELEASE_NOTES_FILE `
+                --prerelease `
+                --latest=false `
+                --target '${{ github.sha }}'
+            }
+            else {
+              gh release upload $env:RELEASE_TAG $env:ASSET_PATH --clobber
+              gh release edit $env:RELEASE_TAG `
+                --title $env:RELEASE_NAME `
+                --notes-file $env:RELEASE_NOTES_FILE `
+                --target '${{ github.sha }}'
+            }
+          }
+          else {
+            if (-not $releaseExists) {
+              gh release create $env:RELEASE_TAG $env:ASSET_PATH `
+                --title $env:RELEASE_NAME `
+                --verify-tag `
+                --generate-notes `
+                --latest
+            }
+            else {
+              gh release upload $env:RELEASE_TAG $env:ASSET_PATH --clobber
+              gh release edit $env:RELEASE_TAG `
+                --title $env:RELEASE_NAME `
+                --latest
+            }
+          }
