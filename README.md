@@ -8,7 +8,9 @@ The current design document source of truth is [Buffero Design Document.txt](C:/
 
 - WPF desktop app targeting `net9.0-windows`
 - Single-instance tray app with settings/status window
+- Custom executable, window, and tray icon
 - Start with Windows support and background launch via `--background`
+- Global replay buffer enable / disable control from the settings window and tray menu
 - Auto-start / auto-stop buffering when an allowed game window stays eligible
 - Foreground window hook for faster auto-detection, with polling fallback
 - Startup scan for new games from Steam libraries, Epic manifests, and other common install folders
@@ -17,8 +19,11 @@ The current design document source of truth is [Buffero Design Document.txt](C:/
 - Replay export is blocked when the save drive is critically low on free space
 - Default save hotkey is `Alt+P`
 - `Right Alt` / `AltGr` save support through the alternate registration path
+- Selectable window or full-display capture mode
+- Selectable native, max `1080p`, or max `720p` capture resolution
 - In-game `Recording saved` overlay on the recorded game window
 - Tray notification fallback when a replay is saved
+- Replay-saved overlay and tray notifications can be disabled in settings
 - Diagnostics show save-drive and temp-drive free space
 - JSON settings under `%LocalAppData%\Buffero\settings.json`
 - Log files under `%LocalAppData%\Buffero\logs`
@@ -27,9 +32,9 @@ The current design document source of truth is [Buffero Design Document.txt](C:/
 ## Current implementation notes
 
 - Capture currently uses `ffmpeg` with `gdigrab`
-- Buffero tries to capture the active game window region instead of the full desktop
+- Buffero can capture either the matched game window region or the full desktop
 - Replay export currently re-encodes buffered segments into the final MP4
-- Auto-start uses a ~2.5 second debounce and requires a valid game window before auto-capture begins
+- Auto-start uses a ~2.5 second debounce and requires a valid game window only when window capture mode is selected
 - Foreground change detection uses `SetWinEventHook`, with the periodic scan retained as a fallback
 - Replay export checks available free space on the configured save drive before queueing `ffmpeg`
 - Game autodetection is still executable-list based; the startup scan expands that list automatically

@@ -6,15 +6,19 @@ namespace Buffero.App.Infrastructure;
 
 public sealed class TrayIconHost : IDisposable
 {
+    private readonly Icon? _appIcon;
     private readonly NotifyIcon _notifyIcon;
     private readonly ToolStripMenuItem _toggleBufferItem;
+    private readonly ToolStripMenuItem _saveReplayItem;
     private string? _lastNotifiedClipPath;
+    private bool _replaySavedNotificationsEnabled = true;
 
     public TrayIconHost()
     {
+        _appIcon = TryLoadAppIcon();
         _notifyIcon = new NotifyIcon
         {
-            Icon = SystemIcons.Application,
+            Icon = _appIcon ?? SystemIcons.Application,
             Visible = true,
             Text = "Buffero"
         };
@@ -25,7 +29,9 @@ public sealed class TrayIconHost : IDisposable
         var menu = new ContextMenuStrip();
         menu.Items.Add("Open Buffero", null, (_, _) => OpenRequested?.Invoke());
         menu.Items.Add(_toggleBufferItem);
-        menu.Items.Add("Save Replay Now", null, (_, _) => SaveReplayRequested?.Invoke());
+        _saveReplayItem = new ToolStripMenuItem("Save Replay Now");
+        _saveReplayItem.Click += (_, _) => SaveReplayRequested?.Invoke();
+        menu.Items.Add(_saveReplayItem);
         menu.Items.Add("Open Clips Folder", null, (_, _) => OpenClipsRequested?.Invoke());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => ExitRequested?.Invoke());
@@ -44,28 +50,48 @@ public sealed class TrayIconHost : IDisposable
 
     public event Action? ExitRequested;
 
+    public void SetReplaySavedNotificationsEnabled(bool isEnabled)
+    {
+        _replaySavedNotificationsEnabled = isEnabled;
+    }
+
     public void Update(ReplayCoordinatorSnapshot snapshot)
     {
-        _toggleBufferItem.Text = snapshot.IsCapturing ? "Stop Buffering" : "Start Buffering";
+        _toggleBufferItem.Text = snapshot.IsReplayBufferEnabled
+            ? "Disable Replay Buffer"
+            : "Enable Replay Buffer";
+        _saveReplayItem.Enabled = snapshot.IsReplayBufferEnabled;
 
-        _notifyIcon.Icon = snapshot.State switch
+        _notifyIcon.Icon = !snapshot.IsReplayBufferEnabled
+            ? _appIcon ?? SystemIcons.Application
+            : snapshot.State switch
         {
             ReplayState.Capturing => SystemIcons.Information,
             ReplayState.Exporting => SystemIcons.Information,
             ReplayState.Recovering => SystemIcons.Warning,
             ReplayState.Faulted => SystemIcons.Error,
-            _ => SystemIcons.Application
+            _ => _appIcon ?? SystemIcons.Application
         };
 
-        _notifyIcon.Text = snapshot.IsCapturing
-            ? "Buffero: buffering"
-            : $"Buffero: {snapshot.State}";
+        _notifyIcon.Text = !snapshot.IsReplayBufferEnabled
+            ? "Buffero: disabled"
+            : snapshot.IsCapturing
+                ? "Buffero: buffering"
+                : $"Buffero: {snapshot.State}";
+
+        if (!snapshot.IsReplayBufferEnabled)
+        {
+            return;
+        }
 
         if (!string.IsNullOrWhiteSpace(snapshot.LastSavedClipPath)
             && !string.Equals(snapshot.LastSavedClipPath, _lastNotifiedClipPath, StringComparison.OrdinalIgnoreCase))
         {
             _lastNotifiedClipPath = snapshot.LastSavedClipPath;
-            ShowSavedNotification(snapshot.LastSavedClipPath);
+            if (_replaySavedNotificationsEnabled)
+            {
+                ShowSavedNotification(snapshot.LastSavedClipPath);
+            }
         }
     }
 
@@ -81,5 +107,25 @@ public sealed class TrayIconHost : IDisposable
     {
         _notifyIcon.Visible = false;
         _notifyIcon.Dispose();
+        _appIcon?.Dispose();
+    }
+
+    private static Icon? TryLoadAppIcon()
+    {
+        try
+        {
+            var resourceInfo = System.Windows.Application.GetResourceStream(new Uri("Assets/buffero.ico", UriKind.Relative));
+            if (resourceInfo is null)
+            {
+                return null;
+            }
+
+            using var stream = resourceInfo.Stream;
+            return new Icon(stream);
+        }
+        catch
+        {
+            return null;
+        }
     }
 }

@@ -76,8 +76,8 @@ public sealed class ReplayCoordinator
     {
         settings.Normalize(_locator.FindBestPath());
 
-        var restartManual = _manualCapture;
-        var restartAuto = _autoCapture && !string.IsNullOrWhiteSpace(_activeMatch);
+        var restartManual = settings.ReplayBufferEnabled && _manualCapture;
+        var restartAuto = settings.ReplayBufferEnabled && _autoCapture && !string.IsNullOrWhiteSpace(_activeMatch);
         var restartMatch = _activeMatch;
 
         await StopCaptureAsync("Applying updated settings.");
@@ -86,6 +86,13 @@ public sealed class ReplayCoordinator
         _paths.EnsureDirectories(_settings.SaveDirectory);
         _segmentCatalog = new SegmentCatalog(_settings.SegmentSeconds);
         _autoStartDebouncer.Reset();
+
+        if (!_settings.ReplayBufferEnabled)
+        {
+            _stateMachine.SetEligibleTarget(null);
+            PublishSnapshot();
+            return;
+        }
 
         if (restartManual)
         {
@@ -103,6 +110,13 @@ public sealed class ReplayCoordinator
 
     public async Task StartManualCaptureAsync()
     {
+        if (!_settings.ReplayBufferEnabled)
+        {
+            _logger.Warn("Manual start ignored because the replay buffer is disabled.");
+            PublishSnapshot();
+            return;
+        }
+
         _manualCapture = true;
         _autoCapture = false;
         await StartCaptureInternalAsync(_activeMatch, manualCapture: true);
@@ -158,6 +172,11 @@ public sealed class ReplayCoordinator
 
         try
         {
+            if (!_settings.ReplayBufferEnabled)
+            {
+                throw new InvalidOperationException("Replay buffer is disabled. Enable it before saving a replay.");
+            }
+
             snapshot = _segmentCatalog.GetReplaySnapshot(_settings.BufferSeconds).ToList();
             if (snapshot.Count == 0)
             {
@@ -269,8 +288,10 @@ public sealed class ReplayCoordinator
                 return;
             }
 
-            var targetWindow = ForegroundProcessProbe.TryResolveTargetWindow(activeMatch);
-            if (!manualCapture && targetWindow is null)
+            var targetWindow = ResolveCaptureTargetWindow(activeMatch);
+            if (!manualCapture
+                && _settings.CaptureMode == CaptureMode.Window
+                && targetWindow is null)
             {
                 _captureTargetWindow = null;
                 _captureTargetDescription = "Not capturing";
@@ -287,7 +308,7 @@ public sealed class ReplayCoordinator
             var outputPattern = Path.Combine(_currentSessionDirectory, "segment-%06d.mp4");
             _captureTargetWindow = targetWindow;
             var captureRegion = _captureTargetWindow?.ToCaptureRegion();
-            _captureTargetDescription = _captureTargetWindow?.Description ?? "Desktop fallback";
+            _captureTargetDescription = DescribeCaptureTarget(_captureTargetWindow, _settings.CaptureMode);
             _logger.Info($"Capture target: {_captureTargetDescription}");
             var arguments = FfmpegCommandBuilder.BuildCaptureArguments(_settings, outputPattern, captureRegion);
 
@@ -387,6 +408,7 @@ public sealed class ReplayCoordinator
     private void PublishSnapshot()
     {
         SnapshotChanged?.Invoke(new ReplayCoordinatorSnapshot(
+            _settings.ReplayBufferEnabled,
             _stateMachine.CurrentState,
             _stateMachine.StatusMessage,
             _activeMatch,
@@ -469,11 +491,16 @@ public sealed class ReplayCoordinator
         return int.TryParse(token, out var sequence) ? sequence : 0;
     }
 
-    private static string? ResolveEligibleAutoCaptureMatch(GameMatchResult result)
+    private static string? ResolveEligibleAutoCaptureMatch(GameMatchResult result, AppSettings settings)
     {
         if (!result.IsMatch)
         {
             return null;
+        }
+
+        if (settings.CaptureMode == CaptureMode.Display)
+        {
+            return result.MatchedExecutable;
         }
 
         var targetWindow = ForegroundProcessProbe.TryResolveTargetWindow(result.MatchedExecutable);
@@ -500,14 +527,14 @@ public sealed class ReplayCoordinator
 
         try
         {
-            if (_settings.AutoStartEnabled)
+            if (_settings.ReplayBufferEnabled && _settings.AutoStartEnabled)
             {
                 var runningProcessNames = ForegroundProcessProbe.GetRunningProcessNames();
                 var foregroundProcessName = _settings.RequireForegroundWindow
                     ? ForegroundProcessProbe.GetForegroundProcessName()
                     : null;
                 var result = _gameMatchEvaluator.Evaluate(runningProcessNames, foregroundProcessName, _settings);
-                var eligibleMatch = ResolveEligibleAutoCaptureMatch(result);
+                var eligibleMatch = ResolveEligibleAutoCaptureMatch(result, _settings);
                 _stateMachine.SetEligibleTarget(eligibleMatch);
                 var stableEligibleMatch = _autoStartDebouncer
                     .Observe(eligibleMatch, DateTimeOffset.UtcNow)
@@ -590,5 +617,22 @@ public sealed class ReplayCoordinator
 
         var scaledValue = Math.Max(0, bytes) / Math.Pow(1024, unitIndex);
         return $"{scaledValue:0.#} {units[unitIndex]}";
+    }
+
+    private CaptureTargetWindow? ResolveCaptureTargetWindow(string? activeMatch)
+    {
+        return _settings.CaptureMode == CaptureMode.Display
+            ? null
+            : ForegroundProcessProbe.TryResolveTargetWindow(activeMatch);
+    }
+
+    private static string DescribeCaptureTarget(CaptureTargetWindow? targetWindow, CaptureMode captureMode)
+    {
+        if (captureMode == CaptureMode.Display)
+        {
+            return "Full display capture";
+        }
+
+        return targetWindow?.Description ?? "Desktop fallback";
     }
 }

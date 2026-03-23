@@ -9,6 +9,7 @@
         Height="840"
         MinWidth="960"
         MinHeight="720"
+        Icon="Assets/buffero.ico"
         WindowStartupLocation="CenterScreen"
         Closing="Window_Closing">
     <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -66,15 +67,18 @@
                         <Button Width="132"
                                 Height="36"
                                 Margin="0,0,10,0"
+                                IsEnabled="{Binding ReplayBufferEnabled}"
                                 Click="StartBuffering_Click"
                                 Content="Start Buffering" />
                         <Button Width="132"
                                 Height="36"
                                 Margin="0,0,10,0"
+                                IsEnabled="{Binding ReplayBufferEnabled}"
                                 Click="StopBuffering_Click"
                                 Content="Stop Buffering" />
                         <Button Width="132"
                                 Height="36"
+                                IsEnabled="{Binding ReplayBufferEnabled}"
                                 Click="SaveReplay_Click"
                                 Content="Save Replay" />
                     </StackPanel>
@@ -140,11 +144,27 @@
 
                         <UniformGrid Grid.Row="2"
                                      Grid.ColumnSpan="2"
-                                     Columns="2">
+                                     Columns="4">
                             <StackPanel Margin="0,0,12,0">
                                 <TextBlock FontWeight="SemiBold" Text="Clip Pattern" />
                                 <TextBox Margin="0,6,0,0"
                                          Text="{Binding ClipFilePattern, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+                            <StackPanel Margin="0,0,12,0">
+                                <TextBlock FontWeight="SemiBold" Text="Capture Mode" />
+                                <ComboBox Margin="0,6,0,0"
+                                          ItemsSource="{Binding SupportedCaptureModes}"
+                                          DisplayMemberPath="Label"
+                                          SelectedValuePath="Value"
+                                          SelectedValue="{Binding CaptureMode}" />
+                            </StackPanel>
+                            <StackPanel Margin="0,0,12,0">
+                                <TextBlock FontWeight="SemiBold" Text="Capture Resolution" />
+                                <ComboBox Margin="0,6,0,0"
+                                          ItemsSource="{Binding SupportedResolutionModes}"
+                                          DisplayMemberPath="Label"
+                                          SelectedValuePath="Value"
+                                          SelectedValue="{Binding OutputResolution}" />
                             </StackPanel>
                             <StackPanel>
                                 <TextBlock FontWeight="SemiBold" Text="Max Temp Storage (GB)" />
@@ -162,19 +182,29 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
 
-                        <CheckBox Content="Start Buffero automatically when Windows starts"
-                                  IsChecked="{Binding StartWithWindows}" />
+                        <CheckBox Content="Enable replay buffer"
+                                  IsChecked="{Binding ReplayBufferEnabled}" />
                         <CheckBox Grid.Row="1"
+                                  Margin="0,8,0,0"
+                                  Content="Start Buffero automatically when Windows starts"
+                                  IsChecked="{Binding StartWithWindows}" />
+                        <CheckBox Grid.Row="2"
                                   Margin="0,8,0,0"
                                   Content="Enable auto-start when a configured game is found"
                                   IsChecked="{Binding AutoStartEnabled}" />
-                        <CheckBox Grid.Row="2"
+                        <CheckBox Grid.Row="3"
                                   Margin="0,8,0,0"
                                   Content="Require the configured game to be the foreground window"
                                   IsChecked="{Binding RequireForegroundWindow}" />
-                        <StackPanel Grid.Row="3" Margin="0,12,0,0">
+                        <CheckBox Grid.Row="4"
+                                  Margin="0,8,0,0"
+                                  Content="Show replay-saved overlay and tray notifications"
+                                  IsChecked="{Binding NotificationsEnabled}" />
+                        <StackPanel Grid.Row="5" Margin="0,12,0,0">
                             <TextBlock FontWeight="SemiBold" Text="Configured Game Executables" />
                             <TextBlock Margin="0,4,0,0"
                                        Foreground="#666"

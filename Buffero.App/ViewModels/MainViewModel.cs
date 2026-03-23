@@ -10,6 +10,7 @@ public sealed class MainViewModel : ObservableObject
     private readonly SettingsStore _settingsStore;
     private readonly BufferoPaths _paths;
     private readonly FileLogger _logger;
+    private AppSettings _appliedSettings;
 
     private string _stateName = "Idle";
     private string _statusMessage = "Waiting for an eligible game.";
@@ -21,7 +22,11 @@ public sealed class MainViewModel : ObservableObject
     private int _fps = 30;
     private int _qualityCrf = 23;
     private int _maxTempStorageGb = 4;
+    private CaptureMode _captureMode = CaptureMode.Window;
+    private OutputResolutionMode _outputResolution = OutputResolutionMode.Native;
     private string _clipFilePattern = "Buffero-{timestamp}-{game}";
+    private bool _notificationsEnabled = true;
+    private bool _replayBufferEnabled = true;
     private bool _startWithWindows;
     private bool _autoStartEnabled = true;
     private bool _requireForegroundWindow = true;
@@ -46,6 +51,7 @@ public sealed class MainViewModel : ObservableObject
         _paths = paths;
         _logger = logger;
         _coordinator = coordinator;
+        _appliedSettings = CloneSettings(initialSettings);
 
         PopulateFromSettings(initialSettings);
 
@@ -70,6 +76,19 @@ public sealed class MainViewModel : ObservableObject
     public ObservableCollection<string> RecentLogLines { get; } = [];
 
     public string[] SupportedHotkeyKeys => HotkeyBinding.SupportedKeys;
+
+    public ResolutionModeOption[] SupportedResolutionModes { get; } =
+    [
+        new(OutputResolutionMode.Native, "Native"),
+        new(OutputResolutionMode.Max1080p, "Max 1080p"),
+        new(OutputResolutionMode.Max720p, "Max 720p")
+    ];
+
+    public CaptureModeOption[] SupportedCaptureModes { get; } =
+    [
+        new(CaptureMode.Window, "Window"),
+        new(CaptureMode.Display, "Display")
+    ];
 
     public string StateName
     {
@@ -131,10 +150,28 @@ public sealed class MainViewModel : ObservableObject
         set => SetProperty(ref _maxTempStorageGb, value);
     }
 
+    public CaptureMode CaptureMode
+    {
+        get => _captureMode;
+        set => SetProperty(ref _captureMode, value);
+    }
+
+    public OutputResolutionMode OutputResolution
+    {
+        get => _outputResolution;
+        set => SetProperty(ref _outputResolution, value);
+    }
+
     public string ClipFilePattern
     {
         get => _clipFilePattern;
         set => SetProperty(ref _clipFilePattern, value);
+    }
+
+    public bool NotificationsEnabled
+    {
+        get => _notificationsEnabled;
+        set => SetProperty(ref _notificationsEnabled, value);
     }
 
     public bool AutoStartEnabled
@@ -147,6 +184,12 @@ public sealed class MainViewModel : ObservableObject
     {
         get => _startWithWindows;
         set => SetProperty(ref _startWithWindows, value);
+    }
+
+    public bool ReplayBufferEnabled
+    {
+        get => _replayBufferEnabled;
+        set => SetProperty(ref _replayBufferEnabled, value);
     }
 
     public bool RequireForegroundWindow
@@ -238,12 +281,22 @@ public sealed class MainViewModel : ObservableObject
     public async Task ApplySettingsAsync()
     {
         var settings = BuildSettings();
-        settings.Normalize(settings.FfmpegPath);
-        _paths.EnsureDirectories(settings.SaveDirectory);
-        _settingsStore.Save(_paths.SettingsFilePath, settings);
-        await _coordinator.ApplySettingsAsync(settings);
-        PopulateFromSettings(settings);
-        _logger.Info("Settings saved.");
+        await ApplySettingsCoreAsync(settings, "Settings saved.");
+    }
+
+    public async Task SetReplayBufferEnabledAsync(bool isEnabled)
+    {
+        if (_appliedSettings.ReplayBufferEnabled == isEnabled)
+        {
+            ReplayBufferEnabled = isEnabled;
+            return;
+        }
+
+        var settings = CloneSettings(_appliedSettings);
+        settings.ReplayBufferEnabled = isEnabled;
+        await ApplySettingsCoreAsync(
+            settings,
+            isEnabled ? "Replay buffer enabled." : "Replay buffer disabled.");
     }
 
     public HotkeyBinding BuildHotkeyBinding()
@@ -276,6 +329,7 @@ public sealed class MainViewModel : ObservableObject
     {
         var settings = new AppSettings
         {
+            ReplayBufferEnabled = ReplayBufferEnabled,
             StartWithWindows = StartWithWindows,
             AutoStartEnabled = AutoStartEnabled,
             RequireForegroundWindow = RequireForegroundWindow,
@@ -285,6 +339,9 @@ public sealed class MainViewModel : ObservableObject
             Fps = Fps,
             QualityCrf = QualityCrf,
             MaxTempStorageGb = MaxTempStorageGb,
+            CaptureMode = CaptureMode,
+            OutputResolution = OutputResolution,
+            NotificationsEnabled = NotificationsEnabled,
             SaveReplayHotkey = BuildHotkeyBinding(),
             FfmpegPath = FfmpegPath,
             ClipFilePattern = ClipFilePattern,
@@ -306,7 +363,11 @@ public sealed class MainViewModel : ObservableObject
         Fps = settings.Fps;
         QualityCrf = settings.QualityCrf;
         MaxTempStorageGb = settings.MaxTempStorageGb;
+        CaptureMode = settings.CaptureMode;
+        OutputResolution = settings.OutputResolution;
         ClipFilePattern = settings.ClipFilePattern;
+        NotificationsEnabled = settings.NotificationsEnabled;
+        ReplayBufferEnabled = settings.ReplayBufferEnabled;
         StartWithWindows = settings.StartWithWindows;
         AutoStartEnabled = settings.AutoStartEnabled;
         RequireForegroundWindow = settings.RequireForegroundWindow;
@@ -321,11 +382,15 @@ public sealed class MainViewModel : ObservableObject
 
     private void ApplySnapshot(ReplayCoordinatorSnapshot snapshot)
     {
-        StateName = snapshot.State.ToString();
-        StatusMessage = snapshot.StatusMessage;
-        StatusDetails = snapshot.IsCapturing
-            ? $"Buffered segments: {snapshot.BufferedSegmentCount}. Target: {snapshot.CaptureTargetDescription}."
-            : HotkeyStatus;
+        StateName = snapshot.IsReplayBufferEnabled ? snapshot.State.ToString() : "Disabled";
+        StatusMessage = snapshot.IsReplayBufferEnabled
+            ? snapshot.StatusMessage
+            : "Replay buffer disabled.";
+        StatusDetails = snapshot.IsReplayBufferEnabled
+            ? snapshot.IsCapturing
+                ? $"Buffered segments: {snapshot.BufferedSegmentCount}. Target: {snapshot.CaptureTargetDescription}."
+                : HotkeyStatus
+            : "Enable the replay buffer to resume auto-capture and replay saves.";
         IsCapturing = snapshot.IsCapturing;
         UpdateDiagnostics(snapshot);
     }
@@ -344,6 +409,10 @@ public sealed class MainViewModel : ObservableObject
             $"Current Session: {snapshot?.SessionDirectory ?? "(none)"}",
             $"Last Saved Clip: {snapshot?.LastSavedClipPath ?? "(none)"}",
             $"Capture Target: {snapshot?.CaptureTargetDescription ?? "(none)"}",
+            $"Replay Buffer Enabled: {ReplayBufferEnabled}",
+            $"Capture Mode: {FormatCaptureMode(CaptureMode)}",
+            $"Capture Resolution: {FormatResolutionMode(OutputResolution)}",
+            $"Replay Saved Notifications: {NotificationsEnabled}",
             $"Save Drive Free Space: {saveDriveFreeSpace}",
             $"Temp Drive Free Space: {tempDriveFreeSpace}",
             $"Hotkey: {HotkeyStatus}",
@@ -378,4 +447,69 @@ public sealed class MainViewModel : ObservableObject
             ? $"{scaledValue:0} {units[unitIndex]}"
             : $"{scaledValue:0.#} {units[unitIndex]}";
     }
+
+    private static string FormatResolutionMode(OutputResolutionMode outputResolution)
+    {
+        return outputResolution switch
+        {
+            OutputResolutionMode.Max1080p => "Max 1080p",
+            OutputResolutionMode.Max720p => "Max 720p",
+            _ => "Native"
+        };
+    }
+
+    private static string FormatCaptureMode(CaptureMode captureMode)
+    {
+        return captureMode switch
+        {
+            CaptureMode.Display => "Display",
+            _ => "Window"
+        };
+    }
+
+    private async Task ApplySettingsCoreAsync(AppSettings settings, string logMessage)
+    {
+        settings.Normalize(settings.FfmpegPath);
+        _paths.EnsureDirectories(settings.SaveDirectory);
+        _settingsStore.Save(_paths.SettingsFilePath, settings);
+        await _coordinator.ApplySettingsAsync(settings);
+        _appliedSettings = CloneSettings(settings);
+        PopulateFromSettings(settings);
+        _logger.Info(logMessage);
+    }
+
+    private static AppSettings CloneSettings(AppSettings settings)
+    {
+        return new AppSettings
+        {
+            ReplayBufferEnabled = settings.ReplayBufferEnabled,
+            StartWithWindows = settings.StartWithWindows,
+            AutoStartEnabled = settings.AutoStartEnabled,
+            RequireForegroundWindow = settings.RequireForegroundWindow,
+            SaveDirectory = settings.SaveDirectory,
+            BufferSeconds = settings.BufferSeconds,
+            SegmentSeconds = settings.SegmentSeconds,
+            Fps = settings.Fps,
+            QualityCrf = settings.QualityCrf,
+            MaxTempStorageGb = settings.MaxTempStorageGb,
+            SaveReplayHotkey = new HotkeyBinding
+            {
+                Ctrl = settings.SaveReplayHotkey.Ctrl,
+                Alt = settings.SaveReplayHotkey.Alt,
+                Shift = settings.SaveReplayHotkey.Shift,
+                Key = settings.SaveReplayHotkey.Key
+            },
+            FfmpegPath = settings.FfmpegPath,
+            IncludeSystemAudio = settings.IncludeSystemAudio,
+            NotificationsEnabled = settings.NotificationsEnabled,
+            CaptureMode = settings.CaptureMode,
+            OutputResolution = settings.OutputResolution,
+            ClipFilePattern = settings.ClipFilePattern,
+            AllowedExecutables = [.. settings.AllowedExecutables]
+        };
+    }
 }
+
+public sealed record ResolutionModeOption(OutputResolutionMode Value, string Label);
+
+public sealed record CaptureModeOption(CaptureMode Value, string Label);

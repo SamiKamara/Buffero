@@ -3,6 +3,7 @@ using Buffero.Core.State;
 namespace Buffero.App.Infrastructure;
 
 public sealed record ReplayCoordinatorSnapshot(
+    bool IsReplayBufferEnabled,
     ReplayState State,
     string StatusMessage,
     string? ActiveMatch,

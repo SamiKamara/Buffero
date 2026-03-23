@@ -40,6 +40,7 @@ public partial class MainWindow : Window
         _coordinator = new ReplayCoordinator(settings, paths, logger, ffmpegLocator);
         _viewModel = new MainViewModel(settings, settingsStore, paths, logger, _coordinator);
         _trayIcon = new TrayIconHost();
+        _trayIcon.SetReplaySavedNotificationsEnabled(settings.NotificationsEnabled);
         _hotkeyManager = new HotkeyManager();
         _gameOverlayNotifier = new GameOverlayNotifier();
         _foregroundWindowHook = new ForegroundWindowHook();
@@ -51,7 +52,7 @@ public partial class MainWindow : Window
 
         _trayIcon.OpenRequested += ShowFromTray;
         _trayIcon.SaveReplayRequested += async () => await Dispatcher.InvokeAsync(async () => await SaveReplayInternalAsync());
-        _trayIcon.ToggleBufferRequested += async () => await Dispatcher.InvokeAsync(async () => await ToggleBufferingAsync());
+        _trayIcon.ToggleBufferRequested += async () => await Dispatcher.InvokeAsync(async () => await ToggleReplayBufferEnabledAsync());
         _trayIcon.OpenClipsRequested += () => Dispatcher.Invoke(() => OpenFolder(_viewModel.SaveDirectory));
         _trayIcon.ExitRequested += async () => await Dispatcher.InvokeAsync(async () => await ExitApplicationAsync());
 
@@ -87,7 +88,10 @@ public partial class MainWindow : Window
         {
             Dispatcher.Invoke(() =>
             {
-                _gameOverlayNotifier.ShowRecordingSaved(replaySavedInfo.TargetWindow, replaySavedInfo.ClipPath);
+                if (_viewModel.NotificationsEnabled)
+                {
+                    _gameOverlayNotifier.ShowRecordingSaved(replaySavedInfo.TargetWindow, replaySavedInfo.ClipPath);
+                }
             });
         };
 
@@ -159,12 +163,26 @@ public partial class MainWindow : Window
         await _coordinator.StartManualCaptureAsync();
     }
 
+    private async Task ToggleReplayBufferEnabledAsync()
+    {
+        try
+        {
+            await _viewModel.SetReplayBufferEnabledAsync(!_viewModel.ReplayBufferEnabled);
+            await _coordinator.TriggerDetectionAsync();
+        }
+        catch (Exception exception)
+        {
+            _logger.Error("Failed to toggle replay buffer.", exception);
+        }
+    }
+
     private async void ApplySettings_Click(object sender, RoutedEventArgs e)
     {
         try
         {
             await _viewModel.ApplySettingsAsync();
             _startupRegistrationService.Apply(_viewModel.StartWithWindows);
+            _trayIcon.SetReplaySavedNotificationsEnabled(_viewModel.NotificationsEnabled);
             _hotkeyManager.UpdateBinding(_viewModel.BuildHotkeyBinding());
             await _coordinator.TriggerDetectionAsync();
         }

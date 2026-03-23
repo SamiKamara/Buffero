@@ -8,6 +8,7 @@ public static class FfmpegCommandBuilder
     public static IReadOnlyList<string> BuildCaptureArguments(AppSettings settings, string outputPattern, CaptureRegion? captureRegion = null)
     {
         var gop = Math.Max(settings.Fps * settings.SegmentSeconds, settings.Fps);
+        var videoFilter = BuildCaptureVideoFilter(settings.OutputResolution);
         var arguments = new List<string>
         {
             "-hide_banner",
@@ -36,7 +37,7 @@ public static class FfmpegCommandBuilder
             "-preset", "veryfast",
             "-crf", settings.QualityCrf.ToString(CultureInfo.InvariantCulture),
             "-pix_fmt", "yuv420p",
-            "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+            "-vf", videoFilter,
             "-g", gop.ToString(CultureInfo.InvariantCulture),
             "-keyint_min", gop.ToString(CultureInfo.InvariantCulture),
             "-sc_threshold", "0",
@@ -49,6 +50,22 @@ public static class FfmpegCommandBuilder
         ]);
 
         return arguments;
+    }
+
+    private static string BuildCaptureVideoFilter(OutputResolutionMode outputResolution)
+    {
+        const string ensureEvenDimensionsFilter = "scale=trunc(iw/2)*2:trunc(ih/2)*2";
+
+        return outputResolution switch
+        {
+            OutputResolutionMode.Max1080p =>
+                "scale=w='min(1920,iw)':h='min(1080,ih)':force_original_aspect_ratio=decrease,"
+                + ensureEvenDimensionsFilter,
+            OutputResolutionMode.Max720p =>
+                "scale=w='min(1280,iw)':h='min(720,ih)':force_original_aspect_ratio=decrease,"
+                + ensureEvenDimensionsFilter,
+            _ => ensureEvenDimensionsFilter
+        };
     }
 
     public static IReadOnlyList<string> BuildExportArguments(AppSettings settings, string concatFilePath, string outputPath)

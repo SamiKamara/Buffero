@@ -4,6 +4,8 @@ namespace Buffero.Core.Configuration;
 
 public sealed class AppSettings
 {
+    public bool ReplayBufferEnabled { get; set; } = true;
+
     public bool StartWithWindows { get; set; }
 
     public bool AutoStartEnabled { get; set; } = true;
@@ -27,6 +29,12 @@ public sealed class AppSettings
     public string FfmpegPath { get; set; } = string.Empty;
 
     public bool IncludeSystemAudio { get; set; }
+
+    public bool NotificationsEnabled { get; set; } = true;
+
+    public CaptureMode CaptureMode { get; set; } = CaptureMode.Window;
+
+    public OutputResolutionMode OutputResolution { get; set; } = OutputResolutionMode.Native;
 
     public string ClipFilePattern { get; set; } = "Buffero-{timestamp}-{game}";
 
@@ -58,6 +66,12 @@ public sealed class AppSettings
         Fps = Math.Clamp(Fps, 15, 60);
         QualityCrf = Math.Clamp(QualityCrf, 18, 35);
         MaxTempStorageGb = Math.Clamp(MaxTempStorageGb, 1, 32);
+        CaptureMode = Enum.IsDefined(CaptureMode)
+            ? CaptureMode
+            : CaptureMode.Window;
+        OutputResolution = Enum.IsDefined(OutputResolution)
+            ? OutputResolution
+            : OutputResolutionMode.Native;
         ClipFilePattern = string.IsNullOrWhiteSpace(ClipFilePattern)
             ? "Buffero-{timestamp}-{game}"
             : ClipFilePattern.Trim();
