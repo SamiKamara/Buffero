@@ -332,6 +332,9 @@ public sealed class MainViewModel : ObservableObject
 
     private void UpdateDiagnostics(ReplayCoordinatorSnapshot? snapshot)
     {
+        var saveDriveFreeSpace = TryFormatDriveFreeSpace(snapshot?.LastSavedClipPath ?? SaveDirectory);
+        var tempDriveFreeSpace = TryFormatDriveFreeSpace(_paths.TempSessionsDirectory);
+
         DiagnosticsText = string.Join(Environment.NewLine,
         [
             $"Settings File: {_paths.SettingsFilePath}",
@@ -341,9 +344,38 @@ public sealed class MainViewModel : ObservableObject
             $"Current Session: {snapshot?.SessionDirectory ?? "(none)"}",
             $"Last Saved Clip: {snapshot?.LastSavedClipPath ?? "(none)"}",
             $"Capture Target: {snapshot?.CaptureTargetDescription ?? "(none)"}",
+            $"Save Drive Free Space: {saveDriveFreeSpace}",
+            $"Temp Drive Free Space: {tempDriveFreeSpace}",
             $"Hotkey: {HotkeyStatus}",
             $"Start With Windows: {StartWithWindows}",
             "Audio: intentionally disabled in this MVP; video export only."
         ]);
+    }
+
+    private static string TryFormatDriveFreeSpace(string path)
+    {
+        if (!StorageSpaceProbe.TryGetAvailableFreeBytes(path, out var availableFreeBytes, out _))
+        {
+            return "(unavailable)";
+        }
+
+        return FormatBytes(availableFreeBytes);
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        string[] units = ["B", "KB", "MB", "GB", "TB"];
+        var scaledValue = Math.Max(0, (double)bytes);
+        var unitIndex = 0;
+
+        while (scaledValue >= 1024 && unitIndex < units.Length - 1)
+        {
+            scaledValue /= 1024;
+            unitIndex++;
+        }
+
+        return unitIndex == 0
+            ? $"{scaledValue:0} {units[unitIndex]}"
+            : $"{scaledValue:0.#} {units[unitIndex]}";
     }
 }

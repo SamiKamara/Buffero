@@ -9,11 +9,15 @@ namespace Buffero.App.Infrastructure;
 
 public sealed class ReplayCoordinator
 {
+    private static readonly TimeSpan AutoStartDebounceInterval = TimeSpan.FromSeconds(2.5);
+
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly FileLogger _logger;
     private readonly FfmpegLocator _locator;
     private readonly BufferoPaths _paths;
     private readonly GameMatchEvaluator _gameMatchEvaluator = new();
+    private readonly GameEligibilityDebouncer _autoStartDebouncer = new(AutoStartDebounceInterval);
+    private readonly SemaphoreSlim _detectionPassGate = new(1, 1);
     private readonly ReplayStateMachine _stateMachine = new();
     private readonly CancellationTokenSource _lifetimeCts = new();
 
@@ -44,6 +48,16 @@ public sealed class ReplayCoordinator
 
     public event Action<ReplaySavedInfo>? ReplaySaved;
 
+    public Task TriggerDetectionAsync()
+    {
+        if (_lifetimeCts.IsCancellationRequested)
+        {
+            return Task.CompletedTask;
+        }
+
+        return Task.Run(() => EvaluateDetectionAsync(_lifetimeCts.Token));
+    }
+
     public async Task InitializeAsync()
     {
         _settings.Normalize(_locator.FindBestPath());
@@ -64,20 +78,22 @@ public sealed class ReplayCoordinator
 
         var restartManual = _manualCapture;
         var restartAuto = _autoCapture && !string.IsNullOrWhiteSpace(_activeMatch);
+        var restartMatch = _activeMatch;
 
         await StopCaptureAsync("Applying updated settings.");
 
         _settings = settings;
         _paths.EnsureDirectories(_settings.SaveDirectory);
         _segmentCatalog = new SegmentCatalog(_settings.SegmentSeconds);
+        _autoStartDebouncer.Reset();
 
         if (restartManual)
         {
-            await StartManualCaptureAsync();
+            await StartCaptureInternalAsync(restartMatch, manualCapture: true);
         }
         else if (restartAuto)
         {
-            await StartCaptureInternalAsync(_activeMatch, manualCapture: false);
+            await StartCaptureInternalAsync(restartMatch, manualCapture: false);
         }
         else
         {
@@ -103,6 +119,11 @@ public sealed class ReplayCoordinator
 
             if (_captureSession is null)
             {
+                _currentSessionDirectory = null;
+                _activeMatch = null;
+                _captureTargetWindow = null;
+                _captureTargetDescription = "Not capturing";
+                _segmentCatalog.ReplaceSegments([]);
                 _stateMachine.MarkCaptureStopped();
                 PublishSnapshot();
                 return;
@@ -112,6 +133,7 @@ public sealed class ReplayCoordinator
             await _captureSession.StopAsync();
             _captureSession = null;
             _currentSessionDirectory = null;
+            _activeMatch = null;
             _captureTargetWindow = null;
             _captureTargetDescription = "Not capturing";
             _segmentCatalog.ReplaceSegments([]);
@@ -148,6 +170,7 @@ public sealed class ReplayCoordinator
             outputPath = Path.Combine(
                 _settings.SaveDirectory,
                 ClipNameBuilder.Build(_settings.ClipFilePattern, DateTimeOffset.Now, _activeMatch));
+            EnsureSufficientExportSpace(outputPath, snapshot);
             concatPath = Path.Combine(sessionDirectory, $"concat-{Guid.NewGuid():N}.txt");
             WriteConcatFile(concatPath, snapshot);
             _stateMachine.MarkExportQueued();
@@ -246,6 +269,15 @@ public sealed class ReplayCoordinator
                 return;
             }
 
+            var targetWindow = ForegroundProcessProbe.TryResolveTargetWindow(activeMatch);
+            if (!manualCapture && targetWindow is null)
+            {
+                _captureTargetWindow = null;
+                _captureTargetDescription = "Not capturing";
+                PublishSnapshot();
+                return;
+            }
+
             _activeMatch = activeMatch;
             _manualCapture = manualCapture;
             _autoCapture = !manualCapture;
@@ -253,7 +285,7 @@ public sealed class ReplayCoordinator
             Directory.CreateDirectory(_currentSessionDirectory);
 
             var outputPattern = Path.Combine(_currentSessionDirectory, "segment-%06d.mp4");
-            _captureTargetWindow = ForegroundProcessProbe.TryResolveTargetWindow(_activeMatch);
+            _captureTargetWindow = targetWindow;
             var captureRegion = _captureTargetWindow?.ToCaptureRegion();
             _captureTargetDescription = _captureTargetWindow?.Description ?? "Desktop fallback";
             _logger.Info($"Capture target: {_captureTargetDescription}");
@@ -284,43 +316,7 @@ public sealed class ReplayCoordinator
     {
         while (!cancellationToken.IsCancellationRequested)
         {
-            try
-            {
-                if (_settings.AutoStartEnabled)
-                {
-                    var runningProcessNames = ForegroundProcessProbe.GetRunningProcessNames();
-                    var foregroundProcessName = _settings.RequireForegroundWindow
-                        ? ForegroundProcessProbe.GetForegroundProcessName()
-                        : null;
-                    var result = _gameMatchEvaluator.Evaluate(runningProcessNames, foregroundProcessName, _settings);
-
-                    _stateMachine.SetEligibleTarget(result.MatchedExecutable);
-
-                    if (!_manualCapture)
-                    {
-                        if (result.IsMatch && _captureSession?.IsRunning != true)
-                        {
-                            await StartCaptureInternalAsync(result.MatchedExecutable, manualCapture: false);
-                        }
-                        else if (!result.IsMatch && _autoCapture && _captureSession?.IsRunning == true)
-                        {
-                            await StopCaptureAsync("Auto-stop because no configured game is active.");
-                        }
-                    }
-                }
-                else
-                {
-                    _stateMachine.SetEligibleTarget(null);
-                }
-            }
-            catch (Exception exception)
-            {
-                _logger.Error("Detection loop failed.", exception);
-                _stateMachine.MarkRecovering(exception.Message);
-                PublishSnapshot();
-            }
-
-            PublishSnapshot();
+            await EvaluateDetectionAsync(cancellationToken);
 
             try
             {
@@ -471,5 +467,128 @@ public sealed class ReplayCoordinator
         var name = Path.GetFileNameWithoutExtension(fileName);
         var token = name.Split('-').LastOrDefault();
         return int.TryParse(token, out var sequence) ? sequence : 0;
+    }
+
+    private static string? ResolveEligibleAutoCaptureMatch(GameMatchResult result)
+    {
+        if (!result.IsMatch)
+        {
+            return null;
+        }
+
+        var targetWindow = ForegroundProcessProbe.TryResolveTargetWindow(result.MatchedExecutable);
+        return targetWindow?.ProcessName;
+    }
+
+    private async Task EvaluateDetectionAsync(CancellationToken cancellationToken)
+    {
+        bool entered;
+
+        try
+        {
+            entered = await _detectionPassGate.WaitAsync(0, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (!entered)
+        {
+            return;
+        }
+
+        try
+        {
+            if (_settings.AutoStartEnabled)
+            {
+                var runningProcessNames = ForegroundProcessProbe.GetRunningProcessNames();
+                var foregroundProcessName = _settings.RequireForegroundWindow
+                    ? ForegroundProcessProbe.GetForegroundProcessName()
+                    : null;
+                var result = _gameMatchEvaluator.Evaluate(runningProcessNames, foregroundProcessName, _settings);
+                var eligibleMatch = ResolveEligibleAutoCaptureMatch(result);
+                _stateMachine.SetEligibleTarget(eligibleMatch);
+                var stableEligibleMatch = _autoStartDebouncer
+                    .Observe(eligibleMatch, DateTimeOffset.UtcNow)
+                    .StableExecutable;
+
+                if (!_manualCapture)
+                {
+                    if (!string.IsNullOrWhiteSpace(stableEligibleMatch) && _captureSession?.IsRunning != true)
+                    {
+                        await StartCaptureInternalAsync(stableEligibleMatch, manualCapture: false);
+                    }
+                    else if (!string.IsNullOrWhiteSpace(stableEligibleMatch)
+                        && _autoCapture
+                        && _captureSession?.IsRunning == true
+                        && !string.Equals(_activeMatch, stableEligibleMatch, StringComparison.OrdinalIgnoreCase))
+                    {
+                        await StopCaptureAsync($"Auto-switch because {stableEligibleMatch} became the active eligible game.");
+                        await StartCaptureInternalAsync(stableEligibleMatch, manualCapture: false);
+                    }
+                    else if (string.IsNullOrWhiteSpace(stableEligibleMatch) && _autoCapture && _captureSession?.IsRunning == true)
+                    {
+                        await StopCaptureAsync("Auto-stop because no configured game window stayed eligible.");
+                    }
+                }
+            }
+            else
+            {
+                _autoStartDebouncer.Reset();
+                _stateMachine.SetEligibleTarget(null);
+            }
+        }
+        catch (Exception exception)
+        {
+            _logger.Error("Detection loop failed.", exception);
+            _stateMachine.MarkRecovering(exception.Message);
+        }
+        finally
+        {
+            PublishSnapshot();
+            _detectionPassGate.Release();
+        }
+    }
+
+    private void EnsureSufficientExportSpace(string outputPath, IReadOnlyCollection<SegmentInfo> snapshot)
+    {
+        if (!StorageSpaceProbe.TryGetAvailableFreeBytes(outputPath, out var availableFreeBytes, out var failureReason))
+        {
+            var probeFailureMessage = $"Replay export blocked because the save drive could not be checked. {failureReason}";
+            _logger.Warn(probeFailureMessage);
+            throw new InvalidOperationException(probeFailureMessage);
+        }
+
+        var check = ExportDiskSpaceGuard.Evaluate(snapshot, availableFreeBytes);
+        if (check.CanExport)
+        {
+            return;
+        }
+
+        var insufficientSpaceMessage = $"Replay export blocked because the save drive is critically low on space. Available: {FormatBytes(check.AvailableFreeBytes)}. Required free space: {FormatBytes(check.RequiredFreeBytes)}.";
+        _logger.Warn(insufficientSpaceMessage);
+        throw new InvalidOperationException(insufficientSpaceMessage);
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        string[] units = ["B", "KB", "MB", "GB", "TB"];
+        var value = Math.Max(0, bytes);
+        var unitIndex = 0;
+
+        while (value >= 1024 && unitIndex < units.Length - 1)
+        {
+            value /= 1024;
+            unitIndex++;
+        }
+
+        if (unitIndex == 0)
+        {
+            return $"{value} {units[unitIndex]}";
+        }
+
+        var scaledValue = Math.Max(0, bytes) / Math.Pow(1024, unitIndex);
+        return $"{scaledValue:0.#} {units[unitIndex]}";
     }
 }

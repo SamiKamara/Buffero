@@ -15,6 +15,7 @@ public partial class MainWindow : Window
     private readonly TrayIconHost _trayIcon;
     private readonly HotkeyManager _hotkeyManager;
     private readonly GameOverlayNotifier _gameOverlayNotifier;
+    private readonly ForegroundWindowHook _foregroundWindowHook;
     private readonly FileLogger _logger;
     private readonly BufferoPaths _paths;
     private readonly StartupRegistrationService _startupRegistrationService;
@@ -41,6 +42,7 @@ public partial class MainWindow : Window
         _trayIcon = new TrayIconHost();
         _hotkeyManager = new HotkeyManager();
         _gameOverlayNotifier = new GameOverlayNotifier();
+        _foregroundWindowHook = new ForegroundWindowHook();
 
         DataContext = _viewModel;
 
@@ -88,11 +90,23 @@ public partial class MainWindow : Window
                 _gameOverlayNotifier.ShowRecordingSaved(replaySavedInfo.TargetWindow, replaySavedInfo.ClipPath);
             });
         };
+
+        _foregroundWindowHook.ForegroundChanged += () => _ = _coordinator.TriggerDetectionAsync();
     }
 
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
         await _coordinator.InitializeAsync();
+
+        try
+        {
+            _foregroundWindowHook.Start();
+            _logger.Info("Foreground window hook installed.");
+        }
+        catch (Exception exception)
+        {
+            _logger.Error("Failed to install foreground window hook. Falling back to polling only.", exception);
+        }
 
         if (_startHidden)
         {
@@ -152,6 +166,7 @@ public partial class MainWindow : Window
             await _viewModel.ApplySettingsAsync();
             _startupRegistrationService.Apply(_viewModel.StartWithWindows);
             _hotkeyManager.UpdateBinding(_viewModel.BuildHotkeyBinding());
+            await _coordinator.TriggerDetectionAsync();
         }
         catch (Exception exception)
         {
@@ -212,6 +227,7 @@ public partial class MainWindow : Window
     {
         _isExiting = true;
         await _coordinator.ShutdownAsync();
+        _foregroundWindowHook.Dispose();
         _gameOverlayNotifier.Dispose();
         _trayIcon.Dispose();
         _hotkeyManager.Dispose();
