@@ -8,10 +8,13 @@ public sealed class ClipNameBuilderTests
     public void Build_ReplacesTokens_AndAppendsExtension()
     {
         var timestamp = new DateTimeOffset(2026, 3, 23, 20, 0, 5, TimeSpan.FromHours(2));
+        var expectedTimestamp = timestamp.ToLocalTime();
 
         var fileName = ClipNameBuilder.Build("clip-{date}-{time}-{game}", timestamp, "My Game");
 
-        Assert.Equal("clip-20260323-200005-My-Game.mp4", fileName);
+        Assert.Equal(
+            $"clip-{expectedTimestamp:yyyyMMdd}-{expectedTimestamp:HHmmss}-My-Game.mp4",
+            fileName);
     }
 
     [Fact]
