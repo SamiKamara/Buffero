@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using Buffero.App.Infrastructure;
+using Buffero.Core.Capture;
 using Buffero.Core.Configuration;
 
 namespace Buffero.App.ViewModels;
@@ -20,7 +21,9 @@ public sealed class MainViewModel : ObservableObject
     private int _bufferSeconds = 30;
     private int _segmentSeconds = 2;
     private int _fps = 30;
-    private int _qualityCrf = 23;
+    private int _qualityCrf = CaptureQualityEstimator.EstimateCrf(OutputResolutionMode.Native, 30, 6);
+    private int _qualityBitrateMbps = 6;
+    private QualityInputMode _qualityInputMode = QualityInputMode.Bitrate;
     private int _maxTempStorageGb = 4;
     private CaptureBackend _captureBackend = CaptureBackend.Native;
     private CaptureMode _captureMode = CaptureMode.Window;
@@ -40,6 +43,7 @@ public sealed class MainViewModel : ObservableObject
     private bool _isCapturing;
     private string _hotkeyStatus = "Save hotkey is not registered.";
     private bool _hotkeyAvailable;
+    private string? _qualityEstimatePreferredProcessName;
 
     public MainViewModel(
         AppSettings initialSettings,
@@ -142,13 +146,65 @@ public sealed class MainViewModel : ObservableObject
     public int Fps
     {
         get => _fps;
-        set => SetProperty(ref _fps, value);
+        set
+        {
+            if (SetProperty(ref _fps, value))
+            {
+                RefreshDerivedQualityValues();
+            }
+        }
     }
 
     public int QualityCrf
     {
         get => _qualityCrf;
-        set => SetProperty(ref _qualityCrf, value);
+        set
+        {
+            if (SetProperty(ref _qualityCrf, value))
+            {
+                SetQualityInputMode(QualityInputMode.Crf);
+                RefreshDerivedQualityValues();
+                PersistQualitySettingsDraft();
+            }
+        }
+    }
+
+    public int QualityBitrateMbps
+    {
+        get => _qualityBitrateMbps;
+        set
+        {
+            if (SetProperty(ref _qualityBitrateMbps, value))
+            {
+                SetQualityInputMode(QualityInputMode.Bitrate);
+                RefreshDerivedQualityValues();
+                PersistQualitySettingsDraft();
+            }
+        }
+    }
+
+    public bool IsCrfQualityActive => _qualityInputMode == QualityInputMode.Crf;
+
+    public bool IsBitrateQualityActive => _qualityInputMode == QualityInputMode.Bitrate;
+
+    public string CrfFieldStatus => IsCrfQualityActive ? "Active input" : "Estimated from Mb/s";
+
+    public string BitrateFieldStatus => IsBitrateQualityActive ? "Active input" : "Estimated from CRF";
+
+    public string QualityEstimateSummary
+    {
+        get
+        {
+            var activeControl = IsCrfQualityActive ? "CRF" : "Mb/s";
+            var estimateResolution = GetQualityEstimateResolution();
+            var outputDescription = estimateResolution.Source == QualityEstimateSource.ConfiguredGameWindow
+                ? $"{estimateResolution.Width}x{estimateResolution.Height} based on the running configured game"
+                : estimateResolution.Source == QualityEstimateSource.PrimaryScreen
+                ? $"{estimateResolution.Width}x{estimateResolution.Height} based on the primary screen"
+                : $"{estimateResolution.Width}x{estimateResolution.Height} reference output";
+
+            return $"Last edited: {activeControl}. The inactive control is estimated using {outputDescription} at {CaptureQualityEstimator.ClampFps(Fps)} FPS; actual results still vary by content.";
+        }
     }
 
     public int MaxTempStorageGb
@@ -172,7 +228,13 @@ public sealed class MainViewModel : ObservableObject
     public OutputResolutionMode OutputResolution
     {
         get => _outputResolution;
-        set => SetProperty(ref _outputResolution, value);
+        set
+        {
+            if (SetProperty(ref _outputResolution, value))
+            {
+                RefreshDerivedQualityValues();
+            }
+        }
     }
 
     public string ClipFilePattern
@@ -214,7 +276,13 @@ public sealed class MainViewModel : ObservableObject
     public string AllowedExecutablesText
     {
         get => _allowedExecutablesText;
-        set => SetProperty(ref _allowedExecutablesText, value);
+        set
+        {
+            if (SetProperty(ref _allowedExecutablesText, value))
+            {
+                RefreshDerivedQualityValues();
+            }
+        }
     }
 
     public bool HotkeyCtrl
@@ -351,6 +419,8 @@ public sealed class MainViewModel : ObservableObject
             SegmentSeconds = SegmentSeconds,
             Fps = Fps,
             QualityCrf = QualityCrf,
+            QualityInputMode = _qualityInputMode,
+            QualityBitrateMbps = QualityBitrateMbps,
             MaxTempStorageGb = MaxTempStorageGb,
             CaptureBackend = CaptureBackend,
             CaptureMode = CaptureMode,
@@ -364,7 +434,8 @@ public sealed class MainViewModel : ObservableObject
                 .ToList()
         };
 
-        settings.Normalize(settings.FfmpegPath);
+        var estimateResolution = GetQualityEstimateResolution();
+        settings.Normalize(settings.FfmpegPath, estimateResolution.Width, estimateResolution.Height);
         return settings;
     }
 
@@ -375,11 +446,11 @@ public sealed class MainViewModel : ObservableObject
         BufferSeconds = settings.BufferSeconds;
         SegmentSeconds = settings.SegmentSeconds;
         Fps = settings.Fps;
-        QualityCrf = settings.QualityCrf;
         MaxTempStorageGb = settings.MaxTempStorageGb;
         CaptureBackend = settings.CaptureBackend;
         CaptureMode = settings.CaptureMode;
         OutputResolution = settings.OutputResolution;
+        ApplyQualitySettings(settings);
         ClipFilePattern = settings.ClipFilePattern;
         NotificationsEnabled = settings.NotificationsEnabled;
         ReplayBufferEnabled = settings.ReplayBufferEnabled;
@@ -395,8 +466,18 @@ public sealed class MainViewModel : ObservableObject
         UpdateDiagnostics(null);
     }
 
+    private QualityEstimateResolution GetQualityEstimateResolution()
+    {
+        return QualityEstimateResolutionProbe.Resolve(
+            OutputResolution,
+            GetConfiguredExecutables(),
+            _qualityEstimatePreferredProcessName);
+    }
+
     private void ApplySnapshot(ReplayCoordinatorSnapshot snapshot)
     {
+        var previousEstimateResolution = GetQualityEstimateResolution();
+        _qualityEstimatePreferredProcessName = snapshot.ActiveMatch;
         StateName = snapshot.IsReplayBufferEnabled ? snapshot.State.ToString() : "Disabled";
         StatusMessage = snapshot.IsReplayBufferEnabled
             ? snapshot.StatusMessage
@@ -407,6 +488,11 @@ public sealed class MainViewModel : ObservableObject
                 : HotkeyStatus
             : "Enable the replay buffer to resume auto-capture and replay saves.";
         IsCapturing = snapshot.IsCapturing;
+        if (previousEstimateResolution != GetQualityEstimateResolution())
+        {
+            RefreshDerivedQualityValues();
+        }
+
         UpdateDiagnostics(snapshot);
     }
 
@@ -493,11 +579,106 @@ public sealed class MainViewModel : ObservableObject
         };
     }
 
+    private void ApplyQualitySettings(AppSettings settings)
+    {
+        _qualityInputMode = settings.QualityInputMode;
+        _qualityCrf = settings.QualityCrf;
+        _qualityBitrateMbps = settings.QualityBitrateMbps;
+        RaisePropertyChanged(nameof(QualityCrf));
+        RaisePropertyChanged(nameof(QualityBitrateMbps));
+        RaiseQualityPresentationChanged();
+        RefreshDerivedQualityValues();
+    }
+
+    private IReadOnlyList<string> GetConfiguredExecutables()
+    {
+        return AllowedExecutablesText
+            .Split(['\r', '\n', ',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
+    }
+
+    private void RefreshDerivedQualityValues()
+    {
+        if (_qualityInputMode == QualityInputMode.Bitrate)
+        {
+            var estimateResolution = GetQualityEstimateResolution();
+            SetProperty(
+                ref _qualityBitrateMbps,
+                CaptureQualityEstimator.ClampBitrateMbps(_qualityBitrateMbps),
+                nameof(QualityBitrateMbps));
+            SetProperty(
+                ref _qualityCrf,
+                CaptureQualityEstimator.EstimateCrf(
+                    estimateResolution.Width,
+                    estimateResolution.Height,
+                    Fps,
+                    CaptureQualityEstimator.MegabitsPerSecondToBitsPerSecond(_qualityBitrateMbps)),
+                nameof(QualityCrf));
+        }
+        else
+        {
+            var estimateResolution = GetQualityEstimateResolution();
+            SetProperty(
+                ref _qualityCrf,
+                CaptureQualityEstimator.ClampCrf(_qualityCrf),
+                nameof(QualityCrf));
+            SetProperty(
+                ref _qualityBitrateMbps,
+                CaptureQualityEstimator.EstimateBitrateMbps(
+                    estimateResolution.Width,
+                    estimateResolution.Height,
+                    Fps,
+                    _qualityCrf),
+                nameof(QualityBitrateMbps));
+        }
+
+        RaiseQualityPresentationChanged();
+    }
+
+    private void SetQualityInputMode(QualityInputMode qualityInputMode)
+    {
+        if (_qualityInputMode == qualityInputMode)
+        {
+            return;
+        }
+
+        _qualityInputMode = qualityInputMode;
+        RaiseQualityPresentationChanged();
+    }
+
+    private void RaiseQualityPresentationChanged()
+    {
+        RaisePropertyChanged(nameof(IsCrfQualityActive));
+        RaisePropertyChanged(nameof(IsBitrateQualityActive));
+        RaisePropertyChanged(nameof(CrfFieldStatus));
+        RaisePropertyChanged(nameof(BitrateFieldStatus));
+        RaisePropertyChanged(nameof(QualityEstimateSummary));
+    }
+
+    private void PersistQualitySettingsDraft()
+    {
+        try
+        {
+            var settings = CloneSettings(_appliedSettings);
+            settings.QualityCrf = _qualityCrf;
+            settings.QualityInputMode = _qualityInputMode;
+            settings.QualityBitrateMbps = _qualityBitrateMbps;
+            var estimateResolution = QualityEstimateResolutionProbe.Resolve(settings, _qualityEstimatePreferredProcessName);
+            _settingsStore.Save(_paths.SettingsFilePath, settings, estimateResolution.Width, estimateResolution.Height);
+            _appliedSettings = settings;
+        }
+        catch (Exception exception)
+        {
+            _logger.Warn($"Failed to persist quality settings draft. {exception.Message}");
+        }
+    }
+
     private async Task ApplySettingsCoreAsync(AppSettings settings, string logMessage)
     {
-        settings.Normalize(settings.FfmpegPath);
+        var estimateResolution = GetQualityEstimateResolution();
+        settings.Normalize(settings.FfmpegPath, estimateResolution.Width, estimateResolution.Height);
         _paths.EnsureDirectories(settings.SaveDirectory);
-        _settingsStore.Save(_paths.SettingsFilePath, settings);
+        _settingsStore.Save(_paths.SettingsFilePath, settings, estimateResolution.Width, estimateResolution.Height);
         await _coordinator.ApplySettingsAsync(settings);
         _appliedSettings = CloneSettings(settings);
         PopulateFromSettings(settings);
@@ -517,6 +698,8 @@ public sealed class MainViewModel : ObservableObject
             SegmentSeconds = settings.SegmentSeconds,
             Fps = settings.Fps,
             QualityCrf = settings.QualityCrf,
+            QualityInputMode = settings.QualityInputMode,
+            QualityBitrateMbps = settings.QualityBitrateMbps,
             MaxTempStorageGb = settings.MaxTempStorageGb,
             CaptureBackend = settings.CaptureBackend,
             SaveReplayHotkey = new HotkeyBinding

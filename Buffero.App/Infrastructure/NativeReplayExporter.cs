@@ -44,7 +44,13 @@ internal static class NativeReplayExporter
         profile.Video.Subtype = "H264";
         profile.Video.Width = outputWidth;
         profile.Video.Height = outputHeight;
-        profile.Video.Bitrate = OutputResolutionCalculator.EstimateBitrate((int)outputWidth, (int)outputHeight, settings.Fps, settings.QualityCrf);
+        profile.Video.Bitrate = (uint)CaptureQualityEstimator.ResolveTargetBitrateBitsPerSecond(
+            settings.QualityInputMode,
+            settings.QualityBitrateMbps,
+            settings.QualityCrf,
+            (int)outputWidth,
+            (int)outputHeight,
+            settings.Fps);
         profile.Video.FrameRate.Numerator = (uint)settings.Fps;
         profile.Video.FrameRate.Denominator = 1;
         profile.Video.PixelAspectRatio.Numerator = 1;

@@ -35,10 +35,16 @@ public partial class App : System.Windows.Application
         _logger = new FileLogger(paths.LogsDirectory);
         _logger.Info("Buffero starting up.");
         var settingsStore = new SettingsStore();
+        DisplayResolutionProbe.TryGetPrimaryScreenResolution(out var primaryScreenWidth, out var primaryScreenHeight);
         var settings = settingsStore.LoadOrCreate(
             paths.SettingsFilePath,
             () => AppSettings.CreateDefault(ffmpegPath),
-            ffmpegPath);
+            ffmpegPath,
+            primaryScreenWidth,
+            primaryScreenHeight);
+        var estimateResolution = QualityEstimateResolutionProbe.Resolve(settings);
+        settings.Normalize(ffmpegPath, estimateResolution.Width, estimateResolution.Height);
+        settingsStore.Save(paths.SettingsFilePath, settings, estimateResolution.Width, estimateResolution.Height);
 
         try
         {
@@ -46,7 +52,12 @@ public partial class App : System.Windows.Application
             var addedExecutables = gameLibraryScanner.ScanAndMerge(settings);
             if (addedExecutables.Count > 0)
             {
-                settingsStore.Save(paths.SettingsFilePath, settings);
+                var mergedEstimateResolution = QualityEstimateResolutionProbe.Resolve(settings);
+                settingsStore.Save(
+                    paths.SettingsFilePath,
+                    settings,
+                    mergedEstimateResolution.Width,
+                    mergedEstimateResolution.Height);
             }
         }
         catch (Exception exception)

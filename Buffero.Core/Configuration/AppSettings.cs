@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Buffero.Core.Capture;
 
 namespace Buffero.Core.Configuration;
 
@@ -20,7 +21,11 @@ public sealed class AppSettings
 
     public int Fps { get; set; } = 30;
 
-    public int QualityCrf { get; set; } = 23;
+    public int QualityCrf { get; set; } = CaptureQualityEstimator.EstimateCrf(OutputResolutionMode.Native, 30, 6);
+
+    public QualityInputMode QualityInputMode { get; set; } = QualityInputMode.Bitrate;
+
+    public int QualityBitrateMbps { get; set; } = 6;
 
     public int MaxTempStorageGb { get; set; } = 4;
 
@@ -57,7 +62,10 @@ public sealed class AppSettings
         };
     }
 
-    public void Normalize(string? fallbackFfmpegPath = null)
+    public void Normalize(
+        string? fallbackFfmpegPath = null,
+        int? estimateSourceWidth = null,
+        int? estimateSourceHeight = null)
     {
         SaveDirectory = string.IsNullOrWhiteSpace(SaveDirectory)
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "Buffero Videos")
@@ -65,8 +73,9 @@ public sealed class AppSettings
 
         BufferSeconds = Math.Clamp(BufferSeconds, 15, 120);
         SegmentSeconds = Math.Clamp(SegmentSeconds, 1, 10);
-        Fps = Math.Clamp(Fps, 15, 60);
-        QualityCrf = Math.Clamp(QualityCrf, 18, 35);
+        Fps = CaptureQualityEstimator.ClampFps(Fps);
+        QualityCrf = CaptureQualityEstimator.ClampCrf(QualityCrf);
+        QualityBitrateMbps = CaptureQualityEstimator.ClampBitrateMbps(QualityBitrateMbps);
         MaxTempStorageGb = Math.Clamp(MaxTempStorageGb, 1, 32);
         CaptureBackend = Enum.IsDefined(CaptureBackend)
             ? CaptureBackend
@@ -77,6 +86,29 @@ public sealed class AppSettings
         OutputResolution = Enum.IsDefined(OutputResolution)
             ? OutputResolution
             : OutputResolutionMode.Native;
+        QualityInputMode = Enum.IsDefined(QualityInputMode)
+            ? QualityInputMode
+            : QualityInputMode.Crf;
+        var (estimateWidth, estimateHeight) = CaptureQualityEstimator.GetEstimatedOutputSize(
+            OutputResolution,
+            estimateSourceWidth,
+            estimateSourceHeight);
+        if (QualityInputMode == QualityInputMode.Bitrate)
+        {
+            QualityCrf = CaptureQualityEstimator.EstimateCrf(
+                estimateWidth,
+                estimateHeight,
+                Fps,
+                CaptureQualityEstimator.MegabitsPerSecondToBitsPerSecond(QualityBitrateMbps));
+        }
+        else
+        {
+            QualityBitrateMbps = CaptureQualityEstimator.EstimateBitrateMbps(
+                estimateWidth,
+                estimateHeight,
+                Fps,
+                QualityCrf);
+        }
         ClipFilePattern = string.IsNullOrWhiteSpace(ClipFilePattern)
             ? "Buffero-{timestamp}-{game}"
             : ClipFilePattern.Trim();

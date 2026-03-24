@@ -97,6 +97,7 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
 
                         <StackPanel Margin="0,0,12,12">
@@ -136,7 +137,7 @@
 
                         <UniformGrid Grid.Row="2"
                                      Grid.ColumnSpan="2"
-                                     Columns="4"
+                                     Columns="3"
                                      Margin="0,0,0,12">
                             <StackPanel Margin="0,0,12,0">
                                 <TextBlock FontWeight="SemiBold" Text="Replay Seconds" />
@@ -153,14 +154,85 @@
                                 <TextBox Margin="0,6,0,0"
                                          Text="{Binding Fps, UpdateSourceTrigger=PropertyChanged}" />
                             </StackPanel>
-                            <StackPanel>
-                                <TextBlock FontWeight="SemiBold" Text="Quality CRF" />
-                                <TextBox Margin="0,6,0,0"
-                                         Text="{Binding QualityCrf, UpdateSourceTrigger=PropertyChanged}" />
-                            </StackPanel>
                         </UniformGrid>
 
-                        <UniformGrid Grid.Row="3"
+                        <Grid Grid.Row="3"
+                              Grid.ColumnSpan="2"
+                              Margin="0,0,0,12">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Grid.ColumnSpan="2"
+                                       Foreground="#666"
+                                       TextWrapping="Wrap"
+                                       Text="{Binding QualityEstimateSummary}" />
+
+                            <StackPanel Grid.Row="1" Margin="0,10,12,0">
+                                <TextBlock FontWeight="SemiBold" Text="Quality CRF" />
+                                <TextBlock Margin="0,4,0,0"
+                                           Foreground="#666"
+                                           Text="{Binding CrfFieldStatus}" />
+                                <TextBox Width="96"
+                                         Margin="0,6,0,0"
+                                         HorizontalAlignment="Left"
+                                         IsEnabled="{Binding IsCrfQualityActive}"
+                                         Text="{Binding QualityCrf, UpdateSourceTrigger=PropertyChanged}" />
+                                <Slider Margin="0,10,0,0"
+                                        Minimum="18"
+                                        Maximum="35"
+                                        TickFrequency="1"
+                                        IsSnapToTickEnabled="True"
+                                        Value="{Binding QualityCrf, UpdateSourceTrigger=PropertyChanged}">
+                                    <Slider.Style>
+                                        <Style TargetType="Slider">
+                                            <Setter Property="Opacity" Value="1" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsCrfQualityActive}" Value="False">
+                                                    <Setter Property="Opacity" Value="0.65" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Slider.Style>
+                                </Slider>
+                            </StackPanel>
+
+                            <StackPanel Grid.Row="1" Grid.Column="1" Margin="12,10,0,0">
+                                <TextBlock FontWeight="SemiBold" Text="Quality Mb/s" />
+                                <TextBlock Margin="0,4,0,0"
+                                           Foreground="#666"
+                                           Text="{Binding BitrateFieldStatus}" />
+                                <TextBox Width="96"
+                                         Margin="0,6,0,0"
+                                         HorizontalAlignment="Left"
+                                         IsEnabled="{Binding IsBitrateQualityActive}"
+                                         Text="{Binding QualityBitrateMbps, UpdateSourceTrigger=PropertyChanged}" />
+                                <Slider Margin="0,10,0,0"
+                                        Minimum="2"
+                                        Maximum="120"
+                                        TickFrequency="1"
+                                        IsSnapToTickEnabled="True"
+                                        Value="{Binding QualityBitrateMbps, UpdateSourceTrigger=PropertyChanged}">
+                                    <Slider.Style>
+                                        <Style TargetType="Slider">
+                                            <Setter Property="Opacity" Value="1" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsBitrateQualityActive}" Value="False">
+                                                    <Setter Property="Opacity" Value="0.65" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Slider.Style>
+                                </Slider>
+                            </StackPanel>
+                        </Grid>
+
+                        <UniformGrid Grid.Row="4"
                                      Grid.ColumnSpan="2"
                                      Columns="4">
                             <StackPanel Margin="0,0,12,0">

@@ -34,8 +34,13 @@ public static class FfmpegCommandBuilder
             "-i", "desktop",
             "-an",
             "-c:v", "libx264",
-            "-preset", "veryfast",
-            "-crf", settings.QualityCrf.ToString(CultureInfo.InvariantCulture),
+            "-preset", "veryfast"
+        ]);
+
+        arguments.AddRange(BuildQualityArguments(settings));
+
+        arguments.AddRange(
+        [
             "-pix_fmt", "yuv420p",
             "-vf", videoFilter,
             "-g", gop.ToString(CultureInfo.InvariantCulture),
@@ -70,8 +75,8 @@ public static class FfmpegCommandBuilder
 
     public static IReadOnlyList<string> BuildExportArguments(AppSettings settings, string concatFilePath, string outputPath)
     {
-        return
-        [
+        var arguments = new List<string>
+        {
             "-hide_banner",
             "-loglevel", "warning",
             "-y",
@@ -80,11 +85,24 @@ public static class FfmpegCommandBuilder
             "-i", concatFilePath,
             "-an",
             "-c:v", "libx264",
-            "-preset", "fast",
-            "-crf", settings.QualityCrf.ToString(CultureInfo.InvariantCulture),
+            "-preset", "fast"
+        };
+
+        arguments.AddRange(BuildQualityArguments(settings));
+        arguments.AddRange(
+        [
             "-pix_fmt", "yuv420p",
             "-movflags", "+faststart",
             outputPath
-        ];
+        ]);
+
+        return arguments;
+    }
+
+    private static IReadOnlyList<string> BuildQualityArguments(AppSettings settings)
+    {
+        return settings.QualityInputMode == QualityInputMode.Bitrate
+            ? ["-b:v", CaptureQualityEstimator.FormatFfmpegBitrate(settings.QualityBitrateMbps)]
+            : ["-crf", settings.QualityCrf.ToString(CultureInfo.InvariantCulture)];
     }
 }

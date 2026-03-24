@@ -45,7 +45,8 @@ public sealed class GameLibraryScanner
             _logger.Info("Game library scan found no new executables.");
         }
 
-        settings.Normalize(settings.FfmpegPath);
+        var estimateResolution = QualityEstimateResolutionProbe.Resolve(settings);
+        settings.Normalize(settings.FfmpegPath, estimateResolution.Width, estimateResolution.Height);
         return added;
     }
 

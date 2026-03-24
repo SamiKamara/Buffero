@@ -62,7 +62,8 @@ public sealed class ReplayCoordinator
 
     public async Task InitializeAsync()
     {
-        _settings.Normalize(_locator.FindBestPath());
+        var estimateResolution = QualityEstimateResolutionProbe.Resolve(_settings, _activeMatch);
+        _settings.Normalize(_locator.FindBestPath(), estimateResolution.Width, estimateResolution.Height);
         _paths.EnsureDirectories(_settings.SaveDirectory);
         PublishSnapshot();
 
@@ -76,7 +77,8 @@ public sealed class ReplayCoordinator
 
     public async Task ApplySettingsAsync(AppSettings settings)
     {
-        settings.Normalize(_locator.FindBestPath());
+        var estimateResolution = QualityEstimateResolutionProbe.Resolve(settings, _activeMatch);
+        settings.Normalize(_locator.FindBestPath(), estimateResolution.Width, estimateResolution.Height);
 
         var restartManual = settings.ReplayBufferEnabled && _manualCapture;
         var restartAuto = settings.ReplayBufferEnabled && _autoCapture && !string.IsNullOrWhiteSpace(_activeMatch);

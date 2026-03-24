@@ -1,4 +1,5 @@
 using Buffero.Core.Configuration;
+using Buffero.Core.Capture;
 using Windows.Graphics.Capture;
 
 namespace Buffero.App.Infrastructure;
@@ -29,7 +30,13 @@ public sealed class NativeCaptureSession : IReplayCaptureSession
         _inputWidth = (uint)item.Size.Width;
         _inputHeight = (uint)item.Size.Height;
         (_outputWidth, _outputHeight) = OutputResolutionCalculator.GetOutputSize(item.Size.Width, item.Size.Height, settings.OutputResolution);
-        _bitrate = OutputResolutionCalculator.EstimateBitrate((int)_outputWidth, (int)_outputHeight, settings.Fps, settings.QualityCrf);
+        _bitrate = (uint)CaptureQualityEstimator.ResolveTargetBitrateBitsPerSecond(
+            settings.QualityInputMode,
+            settings.QualityBitrateMbps,
+            settings.QualityCrf,
+            (int)_outputWidth,
+            (int)_outputHeight,
+            settings.Fps);
     }
 
     public bool IsRunning { get; private set; }
