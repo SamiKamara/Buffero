@@ -434,7 +434,7 @@ public sealed class MainViewModel : ObservableObject
             $"Temp Drive Free Space: {tempDriveFreeSpace}",
             $"Hotkey: {HotkeyStatus}",
             $"Start With Windows: {StartWithWindows}",
-            "Audio: intentionally disabled in this MVP; video export only."
+            "Audio: currently disabled; video export only."
         ]);
     }
 

@@ -40,7 +40,7 @@ The current design document source of truth is [Buffero Design Document.txt](./B
 - Foreground change detection uses `SetWinEventHook`, with the periodic scan retained as a fallback
 - Replay export checks available free space on the configured save drive before queueing export work
 - Game autodetection is still executable-list based; the startup scan expands that list automatically
-- System audio is still disabled in this MVP
+- System audio is still disabled for now
 
 ## Requirements
 
