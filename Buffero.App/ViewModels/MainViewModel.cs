@@ -22,6 +22,7 @@ public sealed class MainViewModel : ObservableObject
     private int _fps = 30;
     private int _qualityCrf = 23;
     private int _maxTempStorageGb = 4;
+    private CaptureBackend _captureBackend = CaptureBackend.Native;
     private CaptureMode _captureMode = CaptureMode.Window;
     private OutputResolutionMode _outputResolution = OutputResolutionMode.Native;
     private string _clipFilePattern = "Buffero-{timestamp}-{game}";
@@ -82,6 +83,12 @@ public sealed class MainViewModel : ObservableObject
         new(OutputResolutionMode.Native, "Native"),
         new(OutputResolutionMode.Max1080p, "Max 1080p"),
         new(OutputResolutionMode.Max720p, "Max 720p")
+    ];
+
+    public CaptureBackendOption[] SupportedCaptureBackends { get; } =
+    [
+        new(CaptureBackend.Native, "Native (Default)"),
+        new(CaptureBackend.Ffmpeg, "ffmpeg Fallback")
     ];
 
     public CaptureModeOption[] SupportedCaptureModes { get; } =
@@ -148,6 +155,12 @@ public sealed class MainViewModel : ObservableObject
     {
         get => _maxTempStorageGb;
         set => SetProperty(ref _maxTempStorageGb, value);
+    }
+
+    public CaptureBackend CaptureBackend
+    {
+        get => _captureBackend;
+        set => SetProperty(ref _captureBackend, value);
     }
 
     public CaptureMode CaptureMode
@@ -339,6 +352,7 @@ public sealed class MainViewModel : ObservableObject
             Fps = Fps,
             QualityCrf = QualityCrf,
             MaxTempStorageGb = MaxTempStorageGb,
+            CaptureBackend = CaptureBackend,
             CaptureMode = CaptureMode,
             OutputResolution = OutputResolution,
             NotificationsEnabled = NotificationsEnabled,
@@ -363,6 +377,7 @@ public sealed class MainViewModel : ObservableObject
         Fps = settings.Fps;
         QualityCrf = settings.QualityCrf;
         MaxTempStorageGb = settings.MaxTempStorageGb;
+        CaptureBackend = settings.CaptureBackend;
         CaptureMode = settings.CaptureMode;
         OutputResolution = settings.OutputResolution;
         ClipFilePattern = settings.ClipFilePattern;
@@ -388,7 +403,7 @@ public sealed class MainViewModel : ObservableObject
             : "Replay buffer disabled.";
         StatusDetails = snapshot.IsReplayBufferEnabled
             ? snapshot.IsCapturing
-                ? $"Buffered segments: {snapshot.BufferedSegmentCount}. Target: {snapshot.CaptureTargetDescription}."
+                ? $"Buffered segments: {snapshot.BufferedSegmentCount}. Backend: {FormatCaptureBackend(snapshot.ActiveCaptureBackend)}. Target: {snapshot.CaptureTargetDescription}."
                 : HotkeyStatus
             : "Enable the replay buffer to resume auto-capture and replay saves.";
         IsCapturing = snapshot.IsCapturing;
@@ -405,6 +420,8 @@ public sealed class MainViewModel : ObservableObject
             $"Settings File: {_paths.SettingsFilePath}",
             $"Temp Session Root: {_paths.TempSessionsDirectory}",
             $"Log File: {_logger.LogFilePath}",
+            $"Configured Capture Backend: {FormatCaptureBackend(CaptureBackend)}",
+            $"Active Capture Backend: {FormatCaptureBackend(snapshot?.ActiveCaptureBackend ?? CaptureBackend)}",
             $"ffmpeg: {(snapshot?.FfmpegPath ?? FfmpegPath)}",
             $"Current Session: {snapshot?.SessionDirectory ?? "(none)"}",
             $"Last Saved Clip: {snapshot?.LastSavedClipPath ?? "(none)"}",
@@ -458,6 +475,15 @@ public sealed class MainViewModel : ObservableObject
         };
     }
 
+    private static string FormatCaptureBackend(CaptureBackend captureBackend)
+    {
+        return captureBackend switch
+        {
+            CaptureBackend.Ffmpeg => "ffmpeg + gdigrab",
+            _ => "Native Windows capture"
+        };
+    }
+
     private static string FormatCaptureMode(CaptureMode captureMode)
     {
         return captureMode switch
@@ -492,6 +518,7 @@ public sealed class MainViewModel : ObservableObject
             Fps = settings.Fps,
             QualityCrf = settings.QualityCrf,
             MaxTempStorageGb = settings.MaxTempStorageGb,
+            CaptureBackend = settings.CaptureBackend,
             SaveReplayHotkey = new HotkeyBinding
             {
                 Ctrl = settings.SaveReplayHotkey.Ctrl,
@@ -511,5 +538,7 @@ public sealed class MainViewModel : ObservableObject
 }
 
 public sealed record ResolutionModeOption(OutputResolutionMode Value, string Label);
+
+public sealed record CaptureBackendOption(CaptureBackend Value, string Label);
 
 public sealed record CaptureModeOption(CaptureMode Value, string Label);

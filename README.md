@@ -6,7 +6,7 @@ The current design document source of truth is [Buffero Design Document.txt](./B
 
 ## Current state
 
-- WPF desktop app targeting `net9.0-windows`
+- WPF desktop app targeting `net9.0-windows10.0.19041.0`
 - Single-instance tray app with settings/status window
 - Custom executable, window, and tray icon
 - Start with Windows support and background launch via `--background`
@@ -20,6 +20,7 @@ The current design document source of truth is [Buffero Design Document.txt](./B
 - Default save hotkey is `Alt+P`
 - `Right Alt` / `AltGr` save support through the alternate registration path
 - Selectable window or full-display capture mode
+- Selectable native `Windows.Graphics.Capture` backend or legacy `ffmpeg + gdigrab` backend
 - Selectable native, max `1080p`, or max `720p` capture resolution
 - In-game `Recording saved` overlay on the recorded game window
 - Tray notification fallback when a replay is saved
@@ -31,12 +32,13 @@ The current design document source of truth is [Buffero Design Document.txt](./B
 
 ## Current implementation notes
 
-- Capture currently uses `ffmpeg` with `gdigrab`
-- Buffero can capture either the matched game window region or the full desktop
-- Replay export currently re-encodes buffered segments into the final MP4
+- Native capture is now the default path, using `Windows.Graphics.Capture` with the Windows media encoding stack
+- The legacy `ffmpeg + gdigrab` path is still available as a selectable backend and is also used as a fallback when native capture/export cannot start
+- Buffero can capture either the matched game window or the display containing that game window
+- Replay export re-encodes buffered segments into the final MP4 through the active backend, with ffmpeg fallback when available
 - Auto-start uses a ~2.5 second debounce and requires a valid game window only when window capture mode is selected
 - Foreground change detection uses `SetWinEventHook`, with the periodic scan retained as a fallback
-- Replay export checks available free space on the configured save drive before queueing `ffmpeg`
+- Replay export checks available free space on the configured save drive before queueing export work
 - Game autodetection is still executable-list based; the startup scan expands that list automatically
 - System audio is still disabled in this MVP
 
@@ -44,7 +46,7 @@ The current design document source of truth is [Buffero Design Document.txt](./B
 
 - Windows 10 or Windows 11
 - .NET 9 SDK for building from source
-- `ffmpeg.exe` available through WinGet or `PATH`, or set manually in Buffero settings
+- `ffmpeg.exe` is optional, but recommended if you want the legacy backend or automatic fallback when native capture/export fails
 
 Buffero already probes common `ffmpeg` locations, including the WinGet link path:
 
@@ -69,13 +71,13 @@ dotnet run --project .\Buffero.App\Buffero.App.csproj
 Built executable:
 
 ```powershell
-.\Buffero.App\bin\Debug\net9.0-windows\Buffero.App.exe
+.\Buffero.App\bin\Debug\net9.0-windows10.0.19041.0\Buffero.App.exe
 ```
 
 Background launch:
 
 ```powershell
-.\Buffero.App\bin\Debug\net9.0-windows\Buffero.App.exe --background
+.\Buffero.App\bin\Debug\net9.0-windows10.0.19041.0\Buffero.App.exe --background
 ```
 
 ## Test

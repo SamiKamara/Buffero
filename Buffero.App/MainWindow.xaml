@@ -30,7 +30,7 @@
                            Text="Buffero" />
                 <TextBlock Margin="0,4,0,0"
                            Foreground="#555"
-                           Text="Windows replay-buffer MVP with tray controls, global hotkey, auto game detection, and ffmpeg-backed clip export." />
+                           Text="Windows replay-buffer app with a native capture path by default and ffmpeg kept as a fallback option." />
             </StackPanel>
 
             <Border Grid.Row="1"
@@ -96,6 +96,7 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
 
                         <StackPanel Margin="0,0,12,12">
@@ -111,12 +112,29 @@
                         </StackPanel>
 
                         <StackPanel Grid.Column="1" Margin="12,0,0,12">
-                            <TextBlock FontWeight="SemiBold" Text="ffmpeg Path" />
-                            <TextBox Margin="0,6,0,0"
-                                     Text="{Binding FfmpegPath, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBlock FontWeight="SemiBold" Text="Capture Backend" />
+                            <ComboBox Margin="0,6,0,0"
+                                      ItemsSource="{Binding SupportedCaptureBackends}"
+                                      DisplayMemberPath="Label"
+                                      SelectedValuePath="Value"
+                                      SelectedValue="{Binding CaptureBackend}" />
                         </StackPanel>
 
                         <UniformGrid Grid.Row="1"
+                                     Grid.ColumnSpan="2"
+                                     Columns="1"
+                                     Margin="0,0,0,12">
+                            <StackPanel>
+                                <TextBlock FontWeight="SemiBold" Text="ffmpeg Path" />
+                                <TextBlock Margin="0,4,0,0"
+                                           Foreground="#666"
+                                           Text="Used when the ffmpeg backend is selected or when native capture/export falls back." />
+                                <TextBox Margin="0,6,0,0"
+                                         Text="{Binding FfmpegPath, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+                        </UniformGrid>
+
+                        <UniformGrid Grid.Row="2"
                                      Grid.ColumnSpan="2"
                                      Columns="4"
                                      Margin="0,0,0,12">
@@ -142,7 +160,7 @@
                             </StackPanel>
                         </UniformGrid>
 
-                        <UniformGrid Grid.Row="2"
+                        <UniformGrid Grid.Row="3"
                                      Grid.ColumnSpan="2"
                                      Columns="4">
                             <StackPanel Margin="0,0,12,0">

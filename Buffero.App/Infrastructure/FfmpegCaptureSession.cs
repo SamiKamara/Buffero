@@ -1,8 +1,9 @@
 using System.Diagnostics;
+using Buffero.Core.Configuration;
 
 namespace Buffero.App.Infrastructure;
 
-public sealed class FfmpegCaptureSession
+public sealed class FfmpegCaptureSession : IReplayCaptureSession
 {
     private readonly FileLogger _logger;
     private Process? _process;
@@ -14,6 +15,8 @@ public sealed class FfmpegCaptureSession
     }
 
     public bool IsRunning => _process is { HasExited: false };
+
+    public CaptureBackend Backend => CaptureBackend.Ffmpeg;
 
     public event Action<int>? Exited;
 

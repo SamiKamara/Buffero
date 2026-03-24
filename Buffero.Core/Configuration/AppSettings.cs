@@ -32,6 +32,8 @@ public sealed class AppSettings
 
     public bool NotificationsEnabled { get; set; } = true;
 
+    public CaptureBackend CaptureBackend { get; set; } = CaptureBackend.Native;
+
     public CaptureMode CaptureMode { get; set; } = CaptureMode.Window;
 
     public OutputResolutionMode OutputResolution { get; set; } = OutputResolutionMode.Native;
@@ -66,6 +68,9 @@ public sealed class AppSettings
         Fps = Math.Clamp(Fps, 15, 60);
         QualityCrf = Math.Clamp(QualityCrf, 18, 35);
         MaxTempStorageGb = Math.Clamp(MaxTempStorageGb, 1, 32);
+        CaptureBackend = Enum.IsDefined(CaptureBackend)
+            ? CaptureBackend
+            : CaptureBackend.Native;
         CaptureMode = Enum.IsDefined(CaptureMode)
             ? CaptureMode
             : CaptureMode.Window;
