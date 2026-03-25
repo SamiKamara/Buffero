@@ -5,6 +5,27 @@ namespace Buffero.Core.Configuration;
 
 public sealed class AppSettings
 {
+    public const double DefaultModeDefaultWindowWidth = 920;
+    public const double DefaultModeDefaultWindowHeight = 700;
+    public const double DefaultModeMinWindowWidth = 820;
+    public const double DefaultModeMinWindowHeight = 640;
+    public const double AdvancedModeDefaultWindowWidth = 1120;
+    public const double AdvancedModeDefaultWindowHeight = 840;
+    public const double AdvancedModeMinWindowWidth = 960;
+    public const double AdvancedModeMinWindowHeight = 720;
+    private const double MaxWindowWidth = 3200;
+    private const double MaxWindowHeight = 2400;
+
+    public UiMode UiMode { get; set; } = global::Buffero.Core.Configuration.UiMode.Default;
+
+    public double DefaultModeWindowWidth { get; set; } = DefaultModeDefaultWindowWidth;
+
+    public double DefaultModeWindowHeight { get; set; } = DefaultModeDefaultWindowHeight;
+
+    public double AdvancedModeWindowWidth { get; set; } = AdvancedModeDefaultWindowWidth;
+
+    public double AdvancedModeWindowHeight { get; set; } = AdvancedModeDefaultWindowHeight;
+
     public bool ReplayBufferEnabled { get; set; } = true;
 
     public bool StartWithWindows { get; set; }
@@ -71,6 +92,29 @@ public sealed class AppSettings
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "Buffero Videos")
             : SaveDirectory.Trim();
 
+        UiMode = Enum.IsDefined(UiMode)
+            ? UiMode
+            : global::Buffero.Core.Configuration.UiMode.Default;
+        DefaultModeWindowWidth = ClampWindowDimension(
+            DefaultModeWindowWidth,
+            DefaultModeMinWindowWidth,
+            MaxWindowWidth,
+            DefaultModeDefaultWindowWidth);
+        DefaultModeWindowHeight = ClampWindowDimension(
+            DefaultModeWindowHeight,
+            DefaultModeMinWindowHeight,
+            MaxWindowHeight,
+            DefaultModeDefaultWindowHeight);
+        AdvancedModeWindowWidth = ClampWindowDimension(
+            AdvancedModeWindowWidth,
+            AdvancedModeMinWindowWidth,
+            MaxWindowWidth,
+            AdvancedModeDefaultWindowWidth);
+        AdvancedModeWindowHeight = ClampWindowDimension(
+            AdvancedModeWindowHeight,
+            AdvancedModeMinWindowHeight,
+            MaxWindowHeight,
+            AdvancedModeDefaultWindowHeight);
         BufferSeconds = Math.Clamp(BufferSeconds, 15, 120);
         SegmentSeconds = Math.Clamp(SegmentSeconds, 1, 10);
         Fps = CaptureQualityEstimator.ClampFps(Fps);
@@ -123,5 +167,33 @@ public sealed class AppSettings
             .Where(token => !string.IsNullOrWhiteSpace(token))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    public (double Width, double Height) GetWindowSize(UiMode uiMode)
+    {
+        return uiMode switch
+        {
+            global::Buffero.Core.Configuration.UiMode.Advanced => (AdvancedModeWindowWidth, AdvancedModeWindowHeight),
+            _ => (DefaultModeWindowWidth, DefaultModeWindowHeight)
+        };
+    }
+
+    public static (double Width, double Height) GetMinimumWindowSize(UiMode uiMode)
+    {
+        return uiMode switch
+        {
+            global::Buffero.Core.Configuration.UiMode.Advanced => (AdvancedModeMinWindowWidth, AdvancedModeMinWindowHeight),
+            _ => (DefaultModeMinWindowWidth, DefaultModeMinWindowHeight)
+        };
+    }
+
+    private static double ClampWindowDimension(double value, double min, double max, double fallback)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value))
+        {
+            return fallback;
+        }
+
+        return Math.Clamp(Math.Round(value), min, max);
     }
 }

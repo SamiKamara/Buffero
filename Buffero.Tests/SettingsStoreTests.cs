@@ -15,6 +15,11 @@ public sealed class SettingsStoreTests
         var settings = store.LoadOrCreate(settingsPath, () => AppSettings.CreateDefault("ffmpeg.exe"), "ffmpeg.exe");
 
         Assert.True(File.Exists(settingsPath));
+        Assert.Equal(UiMode.Default, settings.UiMode);
+        Assert.Equal(AppSettings.DefaultModeDefaultWindowWidth, settings.DefaultModeWindowWidth);
+        Assert.Equal(AppSettings.DefaultModeDefaultWindowHeight, settings.DefaultModeWindowHeight);
+        Assert.Equal(AppSettings.AdvancedModeDefaultWindowWidth, settings.AdvancedModeWindowWidth);
+        Assert.Equal(AppSettings.AdvancedModeDefaultWindowHeight, settings.AdvancedModeWindowHeight);
         Assert.Equal("ffmpeg.exe", settings.FfmpegPath);
         Assert.Equal(CaptureBackend.Native, settings.CaptureBackend);
         Assert.True(settings.ReplayBufferEnabled);
@@ -30,6 +35,11 @@ public sealed class SettingsStoreTests
         var store = new SettingsStore();
         var settings = AppSettings.CreateDefault("ffmpeg.exe");
         settings.ReplayBufferEnabled = false;
+        settings.UiMode = UiMode.Advanced;
+        settings.DefaultModeWindowWidth = 860;
+        settings.DefaultModeWindowHeight = 660;
+        settings.AdvancedModeWindowWidth = 1260;
+        settings.AdvancedModeWindowHeight = 900;
         settings.CaptureBackend = CaptureBackend.Ffmpeg;
         settings.CaptureMode = CaptureMode.Display;
         settings.OutputResolution = OutputResolutionMode.Max720p;
@@ -41,6 +51,11 @@ public sealed class SettingsStoreTests
         var loaded = store.LoadOrCreate(settingsPath, () => AppSettings.CreateDefault("fallback.exe"), "ffmpeg.exe");
 
         Assert.False(loaded.ReplayBufferEnabled);
+        Assert.Equal(UiMode.Advanced, loaded.UiMode);
+        Assert.Equal(860, loaded.DefaultModeWindowWidth);
+        Assert.Equal(660, loaded.DefaultModeWindowHeight);
+        Assert.Equal(1260, loaded.AdvancedModeWindowWidth);
+        Assert.Equal(900, loaded.AdvancedModeWindowHeight);
         Assert.Equal(CaptureBackend.Ffmpeg, loaded.CaptureBackend);
         Assert.Equal(CaptureMode.Display, loaded.CaptureMode);
         Assert.Equal(OutputResolutionMode.Max720p, loaded.OutputResolution);
@@ -48,6 +63,11 @@ public sealed class SettingsStoreTests
         Assert.Equal(QualityInputMode.Bitrate, loaded.QualityInputMode);
         Assert.Equal(16, loaded.QualityBitrateMbps);
         Assert.Contains("\"replayBufferEnabled\": false", File.ReadAllText(settingsPath));
+        Assert.Contains("\"uiMode\": \"Advanced\"", File.ReadAllText(settingsPath));
+        Assert.Contains("\"defaultModeWindowWidth\": 860", File.ReadAllText(settingsPath));
+        Assert.Contains("\"defaultModeWindowHeight\": 660", File.ReadAllText(settingsPath));
+        Assert.Contains("\"advancedModeWindowWidth\": 1260", File.ReadAllText(settingsPath));
+        Assert.Contains("\"advancedModeWindowHeight\": 900", File.ReadAllText(settingsPath));
         Assert.Contains("\"captureBackend\": \"Ffmpeg\"", File.ReadAllText(settingsPath));
         Assert.Contains("\"captureMode\": \"Display\"", File.ReadAllText(settingsPath));
         Assert.Contains("\"outputResolution\": \"Max720p\"", File.ReadAllText(settingsPath));

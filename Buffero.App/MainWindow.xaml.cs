@@ -46,6 +46,7 @@ public partial class MainWindow : Window
         _foregroundWindowHook = new ForegroundWindowHook();
 
         DataContext = _viewModel;
+        ApplyPersistedWindowSizeForCurrentMode();
 
         Loaded += MainWindow_Loaded;
         SourceInitialized += MainWindow_SourceInitialized;
@@ -185,6 +186,7 @@ public partial class MainWindow : Window
             _trayIcon.SetReplaySavedNotificationsEnabled(_viewModel.NotificationsEnabled);
             _hotkeyManager.UpdateBinding(_viewModel.BuildHotkeyBinding());
             await _coordinator.TriggerDetectionAsync();
+            ApplyPersistedWindowSizeForCurrentMode();
         }
         catch (Exception exception)
         {
@@ -220,6 +222,12 @@ public partial class MainWindow : Window
     private void HideToTray_Click(object sender, RoutedEventArgs e)
     {
         HideToTrayInternal();
+    }
+
+    private void ToggleUiMode_Click(object sender, RoutedEventArgs e)
+    {
+        _viewModel.ToggleUiMode();
+        ApplyPersistedWindowSizeForCurrentMode();
     }
 
     private void ShowFromTray()
@@ -266,5 +274,21 @@ public partial class MainWindow : Window
     {
         ShowInTaskbar = false;
         Hide();
+    }
+
+    private void ApplyPersistedWindowSizeForCurrentMode()
+    {
+        ApplyWindowSize(_viewModel.UiMode, _viewModel.GetAppliedWindowSize(_viewModel.UiMode));
+    }
+
+    private void ApplyWindowSize(UiMode uiMode, (double Width, double Height) size)
+    {
+        var (minWidth, minHeight) = AppSettings.GetMinimumWindowSize(uiMode);
+        MinWidth = minWidth;
+        MinHeight = minHeight;
+
+        var (width, height) = size;
+        Width = Math.Max(width, MinWidth);
+        Height = Math.Max(height, MinHeight);
     }
 }

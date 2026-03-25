@@ -13,6 +13,11 @@ public sealed class MainViewModel : ObservableObject
     private readonly FileLogger _logger;
     private AppSettings _appliedSettings;
 
+    private UiMode _uiMode = global::Buffero.Core.Configuration.UiMode.Default;
+    private double _defaultModeWindowWidth = AppSettings.DefaultModeDefaultWindowWidth;
+    private double _defaultModeWindowHeight = AppSettings.DefaultModeDefaultWindowHeight;
+    private double _advancedModeWindowWidth = AppSettings.AdvancedModeDefaultWindowWidth;
+    private double _advancedModeWindowHeight = AppSettings.AdvancedModeDefaultWindowHeight;
     private string _stateName = "Idle";
     private string _statusMessage = "Waiting for an eligible game.";
     private string _statusDetails = "No replay buffer is running.";
@@ -81,6 +86,49 @@ public sealed class MainViewModel : ObservableObject
     public ObservableCollection<string> RecentLogLines { get; } = [];
 
     public string[] SupportedHotkeyKeys => HotkeyBinding.SupportedKeys;
+
+    public UiMode UiMode
+    {
+        get => _uiMode;
+        set
+        {
+            if (SetProperty(ref _uiMode, value))
+            {
+                RaisePropertyChanged(nameof(IsAdvancedMode));
+                RaisePropertyChanged(nameof(UiModeToggleButtonText));
+            }
+        }
+    }
+
+    public bool IsAdvancedMode => UiMode == global::Buffero.Core.Configuration.UiMode.Advanced;
+
+    public string UiModeToggleButtonText => IsAdvancedMode
+        ? "Switch To Default Mode"
+        : "Switch To Advanced Mode";
+
+    public double DefaultModeWindowWidth
+    {
+        get => _defaultModeWindowWidth;
+        set => SetProperty(ref _defaultModeWindowWidth, value);
+    }
+
+    public double DefaultModeWindowHeight
+    {
+        get => _defaultModeWindowHeight;
+        set => SetProperty(ref _defaultModeWindowHeight, value);
+    }
+
+    public double AdvancedModeWindowWidth
+    {
+        get => _advancedModeWindowWidth;
+        set => SetProperty(ref _advancedModeWindowWidth, value);
+    }
+
+    public double AdvancedModeWindowHeight
+    {
+        get => _advancedModeWindowHeight;
+        set => SetProperty(ref _advancedModeWindowHeight, value);
+    }
 
     public ResolutionModeOption[] SupportedResolutionModes { get; } =
     [
@@ -380,6 +428,27 @@ public sealed class MainViewModel : ObservableObject
             isEnabled ? "Replay buffer enabled." : "Replay buffer disabled.");
     }
 
+    public void ToggleUiMode()
+    {
+        var nextMode = IsAdvancedMode
+            ? global::Buffero.Core.Configuration.UiMode.Default
+            : global::Buffero.Core.Configuration.UiMode.Advanced;
+        UiMode = nextMode;
+
+        try
+        {
+            var settings = CloneSettings(_appliedSettings);
+            settings.UiMode = nextMode;
+            var estimateResolution = GetQualityEstimateResolution();
+            _settingsStore.Save(_paths.SettingsFilePath, settings, estimateResolution.Width, estimateResolution.Height);
+            _appliedSettings = settings;
+        }
+        catch (Exception exception)
+        {
+            _logger.Warn($"Failed to persist UI mode. {exception.Message}");
+        }
+    }
+
     public HotkeyBinding BuildHotkeyBinding()
     {
         var binding = new HotkeyBinding
@@ -392,6 +461,20 @@ public sealed class MainViewModel : ObservableObject
 
         binding.Normalize();
         return binding;
+    }
+
+    public (double Width, double Height) GetWindowSize(UiMode uiMode)
+    {
+        return uiMode switch
+        {
+            global::Buffero.Core.Configuration.UiMode.Advanced => (AdvancedModeWindowWidth, AdvancedModeWindowHeight),
+            _ => (DefaultModeWindowWidth, DefaultModeWindowHeight)
+        };
+    }
+
+    public (double Width, double Height) GetAppliedWindowSize(UiMode uiMode)
+    {
+        return _appliedSettings.GetWindowSize(uiMode);
     }
 
     public void SetHotkeyStatus(bool isAvailable, string message)
@@ -410,6 +493,11 @@ public sealed class MainViewModel : ObservableObject
     {
         var settings = new AppSettings
         {
+            UiMode = UiMode,
+            DefaultModeWindowWidth = DefaultModeWindowWidth,
+            DefaultModeWindowHeight = DefaultModeWindowHeight,
+            AdvancedModeWindowWidth = AdvancedModeWindowWidth,
+            AdvancedModeWindowHeight = AdvancedModeWindowHeight,
             ReplayBufferEnabled = ReplayBufferEnabled,
             StartWithWindows = StartWithWindows,
             AutoStartEnabled = AutoStartEnabled,
@@ -441,6 +529,11 @@ public sealed class MainViewModel : ObservableObject
 
     private void PopulateFromSettings(AppSettings settings)
     {
+        UiMode = settings.UiMode;
+        DefaultModeWindowWidth = settings.DefaultModeWindowWidth;
+        DefaultModeWindowHeight = settings.DefaultModeWindowHeight;
+        AdvancedModeWindowWidth = settings.AdvancedModeWindowWidth;
+        AdvancedModeWindowHeight = settings.AdvancedModeWindowHeight;
         SaveDirectory = settings.SaveDirectory;
         FfmpegPath = settings.FfmpegPath;
         BufferSeconds = settings.BufferSeconds;
@@ -689,6 +782,11 @@ public sealed class MainViewModel : ObservableObject
     {
         return new AppSettings
         {
+            UiMode = settings.UiMode,
+            DefaultModeWindowWidth = settings.DefaultModeWindowWidth,
+            DefaultModeWindowHeight = settings.DefaultModeWindowHeight,
+            AdvancedModeWindowWidth = settings.AdvancedModeWindowWidth,
+            AdvancedModeWindowHeight = settings.AdvancedModeWindowHeight,
             ReplayBufferEnabled = settings.ReplayBufferEnabled,
             StartWithWindows = settings.StartWithWindows,
             AutoStartEnabled = settings.AutoStartEnabled,

@@ -5,13 +5,32 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
         Title="Buffero"
-        Width="1120"
-        Height="840"
-        MinWidth="960"
-        MinHeight="720"
+        Width="920"
+        Height="700"
+        MinWidth="820"
+        MinHeight="640"
         Icon="Assets/buffero.ico"
         WindowStartupLocation="CenterScreen"
         Closing="Window_Closing">
+    <Window.Resources>
+        <Style x:Key="AdvancedOnlyStyle" TargetType="{x:Type FrameworkElement}">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsAdvancedMode}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="DefaultOnlyStyle" TargetType="{x:Type FrameworkElement}">
+            <Setter Property="Visibility" Value="Visible" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsAdvancedMode}" Value="True">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
     <ScrollViewer VerticalScrollBarVisibility="Auto">
         <Grid Margin="20">
             <Grid.RowDefinitions>
@@ -24,14 +43,29 @@
                 <ColumnDefinition Width="1.2*" />
             </Grid.ColumnDefinitions>
 
-            <StackPanel Grid.Row="0" Grid.ColumnSpan="2" Margin="0,0,0,16">
-                <TextBlock FontSize="26"
-                           FontWeight="SemiBold"
-                           Text="Buffero" />
-                <TextBlock Margin="0,4,0,0"
-                           Foreground="#555"
-                           Text="Windows replay-buffer app with a native capture path by default and ffmpeg kept as a fallback option." />
-            </StackPanel>
+            <Grid Grid.Row="0" Grid.ColumnSpan="2" Margin="0,0,0,16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel>
+                    <TextBlock FontSize="26"
+                               FontWeight="SemiBold"
+                               Text="Buffero" />
+                    <TextBlock Margin="0,4,0,0"
+                               Foreground="#555"
+                               Text="Windows replay-buffer app with a native capture path by default and ffmpeg kept as a fallback option." />
+                </StackPanel>
+
+                <Button Grid.Column="1"
+                        Height="36"
+                        Padding="16,0"
+                        Margin="20,0,0,0"
+                        VerticalAlignment="Center"
+                        Click="ToggleUiMode_Click"
+                        Content="{Binding UiModeToggleButtonText}" />
+            </Grid>
 
             <Border Grid.Row="1"
                     Grid.ColumnSpan="2"
@@ -87,20 +121,8 @@
 
             <StackPanel Grid.Row="2" Grid.Column="0" Margin="0,0,16,0">
                 <GroupBox Margin="0,0,0,16" Header="Capture">
-                    <Grid Margin="12">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                        </Grid.RowDefinitions>
-
-                        <StackPanel Margin="0,0,12,12">
+                    <StackPanel Margin="12">
+                        <StackPanel Margin="0,0,0,12">
                             <TextBlock FontWeight="SemiBold" Text="Save Directory" />
                             <DockPanel Margin="0,6,0,0">
                                 <Button Width="74"
@@ -112,7 +134,8 @@
                             </DockPanel>
                         </StackPanel>
 
-                        <StackPanel Grid.Column="1" Margin="12,0,0,12">
+                        <StackPanel Margin="0,0,0,12"
+                                    Style="{StaticResource AdvancedOnlyStyle}">
                             <TextBlock FontWeight="SemiBold" Text="Capture Backend" />
                             <ComboBox Margin="0,6,0,0"
                                       ItemsSource="{Binding SupportedCaptureBackends}"
@@ -121,24 +144,34 @@
                                       SelectedValue="{Binding CaptureBackend}" />
                         </StackPanel>
 
-                        <UniformGrid Grid.Row="1"
-                                     Grid.ColumnSpan="2"
-                                     Columns="1"
-                                     Margin="0,0,0,12">
-                            <StackPanel>
-                                <TextBlock FontWeight="SemiBold" Text="ffmpeg Path" />
-                                <TextBlock Margin="0,4,0,0"
-                                           Foreground="#666"
-                                           Text="Used when the ffmpeg backend is selected or when native capture/export falls back." />
+                        <StackPanel Margin="0,0,0,12"
+                                    Style="{StaticResource AdvancedOnlyStyle}">
+                            <TextBlock FontWeight="SemiBold" Text="ffmpeg Path" />
+                            <TextBlock Margin="0,4,0,0"
+                                       Foreground="#666"
+                                       Text="Used when the ffmpeg backend is selected or when native capture/export falls back." />
+                            <TextBox Margin="0,6,0,0"
+                                     Text="{Binding FfmpegPath, UpdateSourceTrigger=PropertyChanged}" />
+                        </StackPanel>
+
+                        <UniformGrid Columns="2"
+                                     Margin="0,0,0,12"
+                                     Style="{StaticResource DefaultOnlyStyle}">
+                            <StackPanel Margin="0,0,12,0">
+                                <TextBlock FontWeight="SemiBold" Text="Replay Seconds" />
                                 <TextBox Margin="0,6,0,0"
-                                         Text="{Binding FfmpegPath, UpdateSourceTrigger=PropertyChanged}" />
+                                         Text="{Binding BufferSeconds, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+                            <StackPanel Margin="0,0,12,0">
+                                <TextBlock FontWeight="SemiBold" Text="FPS" />
+                                <TextBox Margin="0,6,0,0"
+                                         Text="{Binding Fps, UpdateSourceTrigger=PropertyChanged}" />
                             </StackPanel>
                         </UniformGrid>
 
-                        <UniformGrid Grid.Row="2"
-                                     Grid.ColumnSpan="2"
-                                     Columns="3"
-                                     Margin="0,0,0,12">
+                        <UniformGrid Columns="3"
+                                     Margin="0,0,0,12"
+                                     Style="{StaticResource AdvancedOnlyStyle}">
                             <StackPanel Margin="0,0,12,0">
                                 <TextBlock FontWeight="SemiBold" Text="Replay Seconds" />
                                 <TextBox Margin="0,6,0,0"
@@ -156,9 +189,7 @@
                             </StackPanel>
                         </UniformGrid>
 
-                        <Grid Grid.Row="3"
-                              Grid.ColumnSpan="2"
-                              Margin="0,0,0,12">
+                        <Grid Margin="0,0,0,12">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
@@ -232,9 +263,8 @@
                             </StackPanel>
                         </Grid>
 
-                        <UniformGrid Grid.Row="4"
-                                     Grid.ColumnSpan="2"
-                                     Columns="4">
+                        <UniformGrid Columns="4"
+                                     Style="{StaticResource AdvancedOnlyStyle}">
                             <StackPanel Margin="0,0,12,0">
                                 <TextBlock FontWeight="SemiBold" Text="Clip Pattern" />
                                 <TextBox Margin="0,6,0,0"
@@ -262,10 +292,12 @@
                                          Text="{Binding MaxTempStorageGb, UpdateSourceTrigger=PropertyChanged}" />
                             </StackPanel>
                         </UniformGrid>
-                    </Grid>
+                    </StackPanel>
                 </GroupBox>
 
-                <GroupBox Margin="0,0,0,16" Header="Detection">
+                <GroupBox Margin="0,0,0,16"
+                          Header="Detection"
+                          Style="{StaticResource AdvancedOnlyStyle}">
                     <Grid Margin="12">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -309,7 +341,7 @@
                     </Grid>
                 </GroupBox>
 
-                <GroupBox Header="Hotkey">
+                <GroupBox Header="Hotkey Settings">
                     <Grid Margin="12">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -361,10 +393,74 @@
                                 Margin="0,0,10,10"
                                 Click="HideToTray_Click"
                                 Content="Hide To Tray" />
-                    </WrapPanel>
+                        </WrapPanel>
                 </GroupBox>
 
-                <GroupBox Margin="0,0,0,16" Header="Diagnostics">
+                <GroupBox Margin="0,0,0,16"
+                          Header="Persistent Window Sizes"
+                          Style="{StaticResource AdvancedOnlyStyle}">
+                    <Grid Margin="12">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.ColumnSpan="3"
+                                   Margin="0,0,0,12"
+                                   Foreground="#666"
+                                   TextWrapping="Wrap"
+                                   Text="Saved on Save Settings. These sizes are applied when Buffero opens and when you switch UI modes." />
+
+                        <TextBlock Grid.Row="1"
+                                   Grid.Column="1"
+                                   Margin="0,0,12,8"
+                                   FontWeight="SemiBold"
+                                   Text="Width" />
+                        <TextBlock Grid.Row="1"
+                                   Grid.Column="2"
+                                   Margin="0,0,0,8"
+                                   FontWeight="SemiBold"
+                                   Text="Height" />
+
+                        <TextBlock Grid.Row="2"
+                                   VerticalAlignment="Center"
+                                   Text="Default mode" />
+                        <TextBox Grid.Row="2"
+                                 Grid.Column="1"
+                                 Width="96"
+                                 Margin="12,0,12,8"
+                                 Text="{Binding DefaultModeWindowWidth, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBox Grid.Row="2"
+                                 Grid.Column="2"
+                                 Width="96"
+                                 Margin="0,0,0,8"
+                                 Text="{Binding DefaultModeWindowHeight, UpdateSourceTrigger=PropertyChanged}" />
+
+                        <TextBlock Grid.Row="3"
+                                   VerticalAlignment="Center"
+                                   Text="Advanced mode" />
+                        <TextBox Grid.Row="3"
+                                 Grid.Column="1"
+                                 Width="96"
+                                 Margin="12,0,12,0"
+                                 Text="{Binding AdvancedModeWindowWidth, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBox Grid.Row="3"
+                                 Grid.Column="2"
+                                 Width="96"
+                                 Text="{Binding AdvancedModeWindowHeight, UpdateSourceTrigger=PropertyChanged}" />
+                    </Grid>
+                </GroupBox>
+
+                <GroupBox Margin="0,0,0,16"
+                          Header="Diagnostics"
+                          Style="{StaticResource AdvancedOnlyStyle}">
                     <TextBox Margin="12"
                              IsReadOnly="True"
                              BorderThickness="0"
@@ -374,7 +470,8 @@
                              Text="{Binding DiagnosticsText, Mode=OneWay}" />
                 </GroupBox>
 
-                <GroupBox Header="Recent Log">
+                <GroupBox Header="Recent Log"
+                          Style="{StaticResource AdvancedOnlyStyle}">
                     <Grid Margin="12">
                         <ListBox Height="330"
                                  ItemsSource="{Binding RecentLogLines}" />
