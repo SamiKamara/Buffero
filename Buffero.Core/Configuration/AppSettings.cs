@@ -13,6 +13,8 @@ public sealed class AppSettings
     public const double AdvancedModeDefaultWindowHeight = 840;
     public const double AdvancedModeMinWindowWidth = 960;
     public const double AdvancedModeMinWindowHeight = 720;
+    public const int MinBufferSeconds = 15;
+    public const int MaxBufferSeconds = 1200;
     private const double MaxWindowWidth = 3200;
     private const double MaxWindowHeight = 2400;
 
@@ -115,7 +117,7 @@ public sealed class AppSettings
             AdvancedModeMinWindowHeight,
             MaxWindowHeight,
             AdvancedModeDefaultWindowHeight);
-        BufferSeconds = Math.Clamp(BufferSeconds, 15, 120);
+        BufferSeconds = Math.Clamp(BufferSeconds, MinBufferSeconds, MaxBufferSeconds);
         SegmentSeconds = Math.Clamp(SegmentSeconds, 1, 10);
         Fps = CaptureQualityEstimator.ClampFps(Fps);
         QualityCrf = CaptureQualityEstimator.ClampCrf(QualityCrf);

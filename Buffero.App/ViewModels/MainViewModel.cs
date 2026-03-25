@@ -182,8 +182,17 @@ public sealed class MainViewModel : ObservableObject
     public int BufferSeconds
     {
         get => _bufferSeconds;
-        set => SetProperty(ref _bufferSeconds, value);
+        set
+        {
+            var clampedValue = Math.Min(value, AppSettings.MaxBufferSeconds);
+            if (SetProperty(ref _bufferSeconds, clampedValue))
+            {
+                RaisePropertyChanged(nameof(ReplaySecondsHeader));
+            }
+        }
     }
+
+    public string ReplaySecondsHeader => $"Replay Seconds {FormatReplayDuration(BufferSeconds)}";
 
     public int SegmentSeconds
     {
@@ -670,6 +679,25 @@ public sealed class MainViewModel : ObservableObject
             CaptureMode.Display => "Display",
             _ => "Window"
         };
+    }
+
+    private static string FormatReplayDuration(int totalSeconds)
+    {
+        var clampedSeconds = Math.Max(0, totalSeconds);
+        var minutes = clampedSeconds / 60;
+        var seconds = clampedSeconds % 60;
+
+        if (minutes > 0 && seconds > 0)
+        {
+            return $"({minutes} min {seconds} sec)";
+        }
+
+        if (minutes > 0)
+        {
+            return $"({minutes} min)";
+        }
+
+        return $"({seconds} sec)";
     }
 
     private void ApplyQualitySettings(AppSettings settings)

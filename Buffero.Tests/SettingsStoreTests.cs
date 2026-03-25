@@ -90,6 +90,17 @@ public sealed class SettingsStoreTests
     }
 
     [Fact]
+    public void Normalize_ClampsReplaySecondsToUpdatedMaximum()
+    {
+        var settings = AppSettings.CreateDefault("ffmpeg.exe");
+        settings.BufferSeconds = 9_999;
+
+        settings.Normalize();
+
+        Assert.Equal(AppSettings.MaxBufferSeconds, settings.BufferSeconds);
+    }
+
+    [Fact]
     public void Normalize_UpdatesBitrateEstimate_WhenCrfIsActive()
     {
         var settings = AppSettings.CreateDefault("ffmpeg.exe");
