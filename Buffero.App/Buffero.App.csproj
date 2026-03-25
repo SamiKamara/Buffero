@@ -16,10 +16,37 @@
     <ApplicationIcon>Assets\buffero.ico</ApplicationIcon>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
+    <DesktopShortcutOutputDir>$(MSBuildProjectDirectory)\bin\Desktop\</DesktopShortcutOutputDir>
+    <DesktopShortcutOutputDirNormalized>$([System.IO.Path]::GetFullPath('$(DesktopShortcutOutputDir)'))</DesktopShortcutOutputDirNormalized>
   </PropertyGroup>
 
   <ItemGroup>
     <Resource Include="Assets\buffero.ico" />
   </ItemGroup>
+
+  <Target Name="MirrorBuildOutputToDesktopShortcutFolder"
+          AfterTargets="Build"
+          Condition="'$(DesignTimeBuild)' != 'true' and '$(TargetDir)' != ''">
+    <PropertyGroup>
+      <TargetDirNormalized>$([System.IO.Path]::GetFullPath('$(TargetDir)'))</TargetDirNormalized>
+    </PropertyGroup>
+
+    <ItemGroup Condition="'$(TargetDirNormalized)' != '$(DesktopShortcutOutputDirNormalized)'">
+      <DesktopShortcutOutputFiles Include="$(TargetDir)**\*"
+                                  Exclude="$(TargetDir)publish\**;$(TargetDir)ref\**;$(TargetDir)refint\**" />
+    </ItemGroup>
+
+    <Message Text="Mirroring app build output to $(DesktopShortcutOutputDirNormalized)"
+             Importance="High"
+             Condition="'$(TargetDirNormalized)' != '$(DesktopShortcutOutputDirNormalized)'" />
+    <Copy SourceFiles="@(DesktopShortcutOutputFiles)"
+          DestinationFiles="@(DesktopShortcutOutputFiles->'$(DesktopShortcutOutputDirNormalized)%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true"
+          OverwriteReadOnlyFiles="true"
+          Retries="2"
+          RetryDelayMilliseconds="200"
+          ContinueOnError="WarnAndContinue"
+          Condition="'$(TargetDirNormalized)' != '$(DesktopShortcutOutputDirNormalized)'" />
+  </Target>
 
 </Project>

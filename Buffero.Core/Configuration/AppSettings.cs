@@ -5,7 +5,7 @@ namespace Buffero.Core.Configuration;
 
 public sealed class AppSettings
 {
-    public const double DefaultModeDefaultWindowWidth = 920;
+    public const double DefaultModeDefaultWindowWidth = 820;
     public const double DefaultModeDefaultWindowHeight = 700;
     public const double DefaultModeMinWindowWidth = 820;
     public const double DefaultModeMinWindowHeight = 640;

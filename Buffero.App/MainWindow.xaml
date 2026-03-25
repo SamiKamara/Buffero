@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
         Title="Buffero"
-        Width="920"
+        Width="820"
         Height="700"
         MinWidth="820"
         MinHeight="640"
@@ -39,8 +39,8 @@
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="2*" />
-                <ColumnDefinition Width="1.2*" />
+                <ColumnDefinition Width="{Binding MainContentColumnWidth}" />
+                <ColumnDefinition Width="{Binding SidePanelColumnWidth}" />
             </Grid.ColumnDefinitions>
 
             <Grid Grid.Row="0" Grid.ColumnSpan="2" Margin="0,0,0,16">
@@ -95,23 +95,23 @@
                     </StackPanel>
 
                     <StackPanel Grid.Column="1"
-                                Margin="20,0,0,0"
+                                Margin="16,0,0,0"
                                 Orientation="Horizontal"
                                 VerticalAlignment="Center">
-                        <Button Width="132"
-                                Height="36"
-                                Margin="0,0,10,0"
+                        <Button Height="36"
+                                Padding="14,0"
+                                Margin="0,0,8,0"
                                 IsEnabled="{Binding ReplayBufferEnabled}"
                                 Click="StartBuffering_Click"
                                 Content="Start Buffering" />
-                        <Button Width="132"
-                                Height="36"
-                                Margin="0,0,10,0"
+                        <Button Height="36"
+                                Padding="14,0"
+                                Margin="0,0,8,0"
                                 IsEnabled="{Binding ReplayBufferEnabled}"
                                 Click="StopBuffering_Click"
                                 Content="Stop Buffering" />
-                        <Button Width="132"
-                                Height="36"
+                        <Button Height="36"
+                                Padding="14,0"
                                 IsEnabled="{Binding ReplayBufferEnabled}"
                                 Click="SaveReplay_Click"
                                 Content="Save Replay" />
@@ -372,30 +372,60 @@
                 </GroupBox>
             </StackPanel>
 
-            <StackPanel Grid.Row="2" Grid.Column="1">
+            <StackPanel Grid.Row="2"
+                        Grid.Column="1"
+                        MaxWidth="{Binding SidePanelMaxWidth}">
                 <GroupBox Margin="0,0,0,16" Header="Actions">
-                    <WrapPanel Margin="12">
-                        <Button Width="150"
-                                Height="34"
-                                Margin="0,0,10,10"
-                                Click="ApplySettings_Click"
-                                Content="Save Settings" />
-                        <Button Width="150"
-                                Height="34"
-                                Margin="0,0,10,10"
-                                Click="OpenClipsFolder_Click"
-                                Content="Open Clips Folder" />
-                        <Button Width="150"
-                                Height="34"
-                                Margin="0,0,10,10"
-                                Click="OpenLogsFolder_Click"
-                                Content="Open Logs Folder" />
-                        <Button Width="150"
-                                Height="34"
-                                Margin="0,0,10,10"
-                                Click="HideToTray_Click"
-                                Content="Hide To Tray" />
+                    <Grid Margin="12">
+                        <WrapPanel Style="{StaticResource AdvancedOnlyStyle}">
+                            <Button Width="150"
+                                    Height="34"
+                                    Margin="0,0,10,10"
+                                    Click="ApplySettings_Click"
+                                    Content="Save Settings" />
+                            <Button Width="150"
+                                    Height="34"
+                                    Margin="0,0,10,10"
+                                    Click="OpenClipsFolder_Click"
+                                    Content="Open Clips Folder" />
+                            <Button Width="150"
+                                    Height="34"
+                                    Margin="0,0,10,10"
+                                    Click="OpenLogsFolder_Click"
+                                    Content="Open Logs Folder" />
+                            <Button Width="150"
+                                    Height="34"
+                                    Margin="0,0,10,10"
+                                    Click="HideToTray_Click"
+                                    Content="Hide To Tray" />
                         </WrapPanel>
+
+                        <StackPanel Style="{StaticResource DefaultOnlyStyle}">
+                            <Button Width="148"
+                                    Height="34"
+                                    Margin="0,0,0,10"
+                                    HorizontalAlignment="Left"
+                                    Click="ApplySettings_Click"
+                                    Content="Save Settings" />
+                            <Button Width="148"
+                                    Height="34"
+                                    Margin="0,0,0,10"
+                                    HorizontalAlignment="Left"
+                                    Click="OpenClipsFolder_Click"
+                                    Content="Open Clips Folder" />
+                            <Button Width="148"
+                                    Height="34"
+                                    Margin="0,0,0,10"
+                                    HorizontalAlignment="Left"
+                                    Click="OpenLogsFolder_Click"
+                                    Content="Open Logs Folder" />
+                            <Button Width="148"
+                                    Height="34"
+                                    HorizontalAlignment="Left"
+                                    Click="HideToTray_Click"
+                                    Content="Hide To Tray" />
+                        </StackPanel>
+                    </Grid>
                 </GroupBox>
 
                 <GroupBox Margin="0,0,0,16"

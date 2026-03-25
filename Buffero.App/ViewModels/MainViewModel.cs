@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Windows;
 using Buffero.App.Infrastructure;
 using Buffero.Core.Capture;
 using Buffero.Core.Configuration;
@@ -96,11 +97,26 @@ public sealed class MainViewModel : ObservableObject
             {
                 RaisePropertyChanged(nameof(IsAdvancedMode));
                 RaisePropertyChanged(nameof(UiModeToggleButtonText));
+                RaisePropertyChanged(nameof(MainContentColumnWidth));
+                RaisePropertyChanged(nameof(SidePanelColumnWidth));
+                RaisePropertyChanged(nameof(SidePanelMaxWidth));
             }
         }
     }
 
     public bool IsAdvancedMode => UiMode == global::Buffero.Core.Configuration.UiMode.Advanced;
+
+    public GridLength MainContentColumnWidth => IsAdvancedMode
+        ? new GridLength(2, GridUnitType.Star)
+        : new GridLength(1, GridUnitType.Star);
+
+    public GridLength SidePanelColumnWidth => IsAdvancedMode
+        ? new GridLength(1.2, GridUnitType.Star)
+        : GridLength.Auto;
+
+    public double SidePanelMaxWidth => IsAdvancedMode
+        ? double.PositiveInfinity
+        : 188d;
 
     public string UiModeToggleButtonText => IsAdvancedMode
         ? "Switch To Default Mode"

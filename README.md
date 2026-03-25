@@ -60,6 +60,12 @@ Buffero already probes common `ffmpeg` locations, including the WinGet link path
 dotnet build Buffero.sln
 ```
 
+Any `Buffero.App` build is also mirrored to the desktop-shortcut folder:
+
+```text
+.\Buffero.App\bin\Desktop\
+```
+
 ## Run
 
 From source:
@@ -71,13 +77,13 @@ dotnet run --project .\Buffero.App\Buffero.App.csproj
 Built executable:
 
 ```powershell
-.\Buffero.App\bin\Debug\net9.0-windows10.0.19041.0\Buffero.App.exe
+.\Buffero.App\bin\Desktop\Buffero.App.exe
 ```
 
 Background launch:
 
 ```powershell
-.\Buffero.App\bin\Debug\net9.0-windows10.0.19041.0\Buffero.App.exe --background
+.\Buffero.App\bin\Desktop\Buffero.App.exe --background
 ```
 
 ## Test
