@@ -1,5 +1,6 @@
 using Buffero.App.Infrastructure;
 using Buffero.Core.Configuration;
+using System.Diagnostics;
 
 namespace Buffero.App;
 
@@ -34,6 +35,7 @@ public partial class App : System.Windows.Application
         var paths = BufferoPaths.Create();
         _logger = new FileLogger(paths.LogsDirectory);
         _logger.Info("Buffero starting up.");
+        _logger.Info($"Executable path: {Environment.ProcessPath ?? Process.GetCurrentProcess().MainModule?.FileName ?? "(unknown)"}");
         var settingsStore = new SettingsStore();
         DisplayResolutionProbe.TryGetPrimaryScreenResolution(out var primaryScreenWidth, out var primaryScreenHeight);
         var settings = settingsStore.LoadOrCreate(

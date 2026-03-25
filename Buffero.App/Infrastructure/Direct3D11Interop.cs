@@ -3,6 +3,7 @@ using Vortice.Direct3D;
 using Vortice.Direct3D11;
 using Vortice.DXGI;
 using Windows.Graphics.DirectX.Direct3D11;
+using WinRT;
 using static Vortice.Direct3D11.D3D11;
 
 namespace Buffero.App.Infrastructure;
@@ -95,7 +96,7 @@ internal static class Direct3D11Interop
 
         try
         {
-            var winrtDevice = (IDirect3DDevice)Marshal.GetObjectForIUnknown(graphicsDevicePointer);
+            var winrtDevice = MarshalInterface<IDirect3DDevice>.FromAbi(graphicsDevicePointer);
             return new NativeDirect3DContext(device, deviceContext, winrtDevice, multithread);
         }
         finally
@@ -111,7 +112,7 @@ internal static class Direct3D11Interop
 
         try
         {
-            return (IDirect3DSurface)Marshal.GetObjectForIUnknown(graphicsSurfacePointer);
+            return MarshalInterface<IDirect3DSurface>.FromAbi(graphicsSurfacePointer);
         }
         finally
         {

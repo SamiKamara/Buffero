@@ -13,6 +13,7 @@ public sealed class ReplayCoordinator
     private static readonly TimeSpan AutoStartDebounceInterval = TimeSpan.FromSeconds(2.5);
 
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly object _segmentCatalogSync = new();
     private readonly FileLogger _logger;
     private readonly FfmpegLocator _locator;
     private readonly BufferoPaths _paths;
@@ -33,6 +34,7 @@ public sealed class ReplayCoordinator
     private CaptureTargetWindow? _captureTargetWindow;
     private string _captureTargetDescription = "Desktop fallback";
     private CaptureBackend _activeCaptureBackend = CaptureBackend.Native;
+    private int _captureGeneration;
     private bool _manualCapture;
     private bool _autoCapture;
 
@@ -137,12 +139,17 @@ public sealed class ReplayCoordinator
 
             if (_captureSession is null)
             {
+                _captureGeneration++;
                 _currentSessionDirectory = null;
                 _activeMatch = null;
                 _captureTargetWindow = null;
                 _captureTargetDescription = "Not capturing";
                 _activeCaptureBackend = _settings.CaptureBackend;
-                _segmentCatalog.ReplaceSegments([]);
+                lock (_segmentCatalogSync)
+                {
+                    _segmentCatalog.ReplaceSegments([]);
+                }
+
                 _stateMachine.MarkCaptureStopped();
                 PublishSnapshot();
                 return;
@@ -150,13 +157,18 @@ public sealed class ReplayCoordinator
 
             _logger.Info(reason);
             await _captureSession.StopAsync();
+            _captureGeneration++;
             _captureSession = null;
             _currentSessionDirectory = null;
             _activeMatch = null;
             _captureTargetWindow = null;
             _captureTargetDescription = "Not capturing";
             _activeCaptureBackend = _settings.CaptureBackend;
-            _segmentCatalog.ReplaceSegments([]);
+            lock (_segmentCatalogSync)
+            {
+                _segmentCatalog.ReplaceSegments([]);
+            }
+
             _stateMachine.MarkCaptureStopped();
             PublishSnapshot();
         }
@@ -183,7 +195,11 @@ public sealed class ReplayCoordinator
                 throw new InvalidOperationException("Replay buffer is disabled. Enable it before saving a replay.");
             }
 
-            snapshot = _segmentCatalog.GetReplaySnapshot(_settings.BufferSeconds).ToList();
+            lock (_segmentCatalogSync)
+            {
+                snapshot = _segmentCatalog.GetReplaySnapshot(_settings.BufferSeconds).ToList();
+            }
+
             if (snapshot.Count == 0)
             {
                 throw new InvalidOperationException("No finalized replay segments are buffered yet.");
@@ -286,7 +302,10 @@ public sealed class ReplayCoordinator
         }
     }
 
-    private async Task StartCaptureInternalAsync(string? activeMatch, bool manualCapture)
+    private async Task StartCaptureInternalAsync(
+        string? activeMatch,
+        bool manualCapture,
+        CaptureBackend? backendOverride = null)
     {
         await _gate.WaitAsync();
 
@@ -315,13 +334,27 @@ public sealed class ReplayCoordinator
             Directory.CreateDirectory(_currentSessionDirectory);
 
             _captureTargetWindow = targetWindow;
-            _captureTargetDescription = DescribeCaptureTarget(_captureTargetWindow, _settings.CaptureMode);
+            var effectiveCaptureMode = ResolveEffectiveCaptureMode(targetWindow);
+            _captureTargetDescription = DescribeCaptureTarget(_captureTargetWindow, _settings.CaptureMode, effectiveCaptureMode);
             _logger.Info($"Capture target: {_captureTargetDescription}");
-            (_captureSession, _activeCaptureBackend) = await StartPreferredCaptureSessionAsync(targetWindow, _currentSessionDirectory);
+            (_captureSession, _activeCaptureBackend) = await StartPreferredCaptureSessionAsync(
+                targetWindow,
+                _currentSessionDirectory,
+                effectiveCaptureMode,
+                backendOverride);
             _captureSession.Exited += OnCaptureExited;
 
-            _segmentCatalog = new SegmentCatalog(_settings.SegmentSeconds);
-            _segmentLoopTask = Task.Run(() => RunSegmentLoopAsync(_currentSessionDirectory, _lifetimeCts.Token), _lifetimeCts.Token);
+            lock (_segmentCatalogSync)
+            {
+                _segmentCatalog = new SegmentCatalog(_settings.SegmentSeconds);
+            }
+
+            var captureGeneration = ++_captureGeneration;
+            var captureSession = _captureSession;
+            var sessionDirectory = _currentSessionDirectory;
+            _segmentLoopTask = Task.Run(
+                () => RunSegmentLoopAsync(captureSession, sessionDirectory, captureGeneration, _lifetimeCts.Token),
+                _lifetimeCts.Token);
             _stateMachine.MarkCaptureStarted(_activeMatch);
             PublishSnapshot();
         }
@@ -354,10 +387,19 @@ public sealed class ReplayCoordinator
         }
     }
 
-    private async Task RunSegmentLoopAsync(string sessionDirectory, CancellationToken cancellationToken)
+    private async Task RunSegmentLoopAsync(
+        IReplayCaptureSession session,
+        string sessionDirectory,
+        int captureGeneration,
+        CancellationToken cancellationToken)
     {
-        while (!cancellationToken.IsCancellationRequested && _captureSession?.IsRunning == true)
+        while (!cancellationToken.IsCancellationRequested)
         {
+            if (!IsCurrentCaptureSession(session, sessionDirectory, captureGeneration))
+            {
+                break;
+            }
+
             try
             {
                 var threshold = DateTimeOffset.UtcNow.AddSeconds(-1);
@@ -372,9 +414,21 @@ public sealed class ReplayCoordinator
                     .OrderBy(segment => segment.Sequence)
                     .ToArray();
 
-                _segmentCatalog.ReplaceSegments(segments);
+                if (!IsCurrentCaptureSession(session, sessionDirectory, captureGeneration))
+                {
+                    break;
+                }
 
-                foreach (var segment in _segmentCatalog.GetOverflowSegments(_settings.BufferSeconds, _settings.MaxTempStorageBytes))
+                IReadOnlyList<SegmentInfo> overflowSegments;
+                lock (_segmentCatalogSync)
+                {
+                    _segmentCatalog.ReplaceSegments(segments);
+                    overflowSegments = _segmentCatalog
+                        .GetOverflowSegments(_settings.BufferSeconds, _settings.MaxTempStorageBytes)
+                        .ToArray();
+                }
+
+                foreach (var segment in overflowSegments)
                 {
                     try
                     {
@@ -393,6 +447,11 @@ public sealed class ReplayCoordinator
             }
             catch (Exception exception)
             {
+                if (!IsCurrentCaptureSession(session, sessionDirectory, captureGeneration))
+                {
+                    break;
+                }
+
                 _logger.Error("Segment monitor failed.", exception);
                 _stateMachine.MarkRecovering(exception.Message);
                 PublishSnapshot();
@@ -411,13 +470,19 @@ public sealed class ReplayCoordinator
 
     private void PublishSnapshot()
     {
+        int segmentCount;
+        lock (_segmentCatalogSync)
+        {
+            segmentCount = _segmentCatalog.Segments.Count;
+        }
+
         SnapshotChanged?.Invoke(new ReplayCoordinatorSnapshot(
             _settings.ReplayBufferEnabled,
             _stateMachine.CurrentState,
             _stateMachine.StatusMessage,
             _activeMatch,
             _captureSession?.IsRunning == true,
-            _segmentCatalog.Segments.Count,
+            segmentCount,
             _lastSavedClipPath,
             _settings.CaptureBackend,
             _activeCaptureBackend,
@@ -428,29 +493,85 @@ public sealed class ReplayCoordinator
 
     private void OnCaptureExited(int exitCode)
     {
+        _ = HandleCaptureExitedAsync(exitCode);
+    }
+
+    private async Task HandleCaptureExitedAsync(int exitCode)
+    {
         if (exitCode == 0)
         {
             return;
         }
 
-        _stateMachine.MarkRecovering($"Capture process exited with code {exitCode}.");
-        PublishSnapshot();
+        string? restartMatch = null;
+        CaptureBackend? backendOverride = null;
+        var manualCapture = false;
+
+        await _gate.WaitAsync();
+
+        try
+        {
+            var failedBackend = _activeCaptureBackend;
+            if (_captureSession is not null)
+            {
+                _captureSession.Exited -= OnCaptureExited;
+            }
+
+            _captureGeneration++;
+            _captureSession = null;
+            _currentSessionDirectory = null;
+            lock (_segmentCatalogSync)
+            {
+                _segmentCatalog.ReplaceSegments([]);
+            }
+
+            if (failedBackend == CaptureBackend.Native
+                && _settings.CaptureBackend == CaptureBackend.Native
+                && CanUseFfmpeg()
+                && (_manualCapture || _autoCapture)
+                && !_lifetimeCts.IsCancellationRequested)
+            {
+                restartMatch = _activeMatch;
+                manualCapture = _manualCapture;
+                backendOverride = CaptureBackend.Ffmpeg;
+                _stateMachine.MarkRecovering("Native capture stopped producing frames. Restarting with ffmpeg fallback.");
+            }
+            else
+            {
+                _stateMachine.MarkRecovering($"Capture process exited with code {exitCode}.");
+            }
+
+            PublishSnapshot();
+        }
+        finally
+        {
+            _gate.Release();
+        }
+
+        if (backendOverride is not null)
+        {
+            _logger.Warn("Native capture exited after startup and will restart with ffmpeg fallback.");
+            await StartCaptureInternalAsync(restartMatch, manualCapture, backendOverride);
+        }
     }
 
     private async Task<(IReplayCaptureSession Session, CaptureBackend Backend)> StartPreferredCaptureSessionAsync(
         CaptureTargetWindow? targetWindow,
-        string sessionDirectory)
+        string sessionDirectory,
+        CaptureMode effectiveCaptureMode,
+        CaptureBackend? backendOverride = null)
     {
+        var requestedBackend = backendOverride ?? _settings.CaptureBackend;
         Exception? nativeFailure = null;
 
-        if (_settings.CaptureBackend == CaptureBackend.Native)
+        if (requestedBackend == CaptureBackend.Native)
         {
             try
             {
                 var nativeSession = new NativeCaptureSession(
                     _settings,
                     _logger,
-                    CreateCaptureItem(targetWindow),
+                    CreateCaptureItem(targetWindow, effectiveCaptureMode),
                     sessionDirectory);
                 await nativeSession.StartAsync();
                 return (nativeSession, CaptureBackend.Native);
@@ -462,14 +583,23 @@ public sealed class ReplayCoordinator
             }
         }
 
-        if (CanUseFfmpeg())
+        if (requestedBackend == CaptureBackend.Ffmpeg || CanUseFfmpeg())
         {
             var ffmpegSession = new FfmpegCaptureSession(_logger);
             var outputPattern = Path.Combine(sessionDirectory, "segment-%06d.mp4");
-            var captureRegion = _settings.CaptureMode == CaptureMode.Window
-                ? targetWindow?.ToCaptureRegion()
-                : null;
-            var arguments = FfmpegCommandBuilder.BuildCaptureArguments(_settings, outputPattern, captureRegion);
+            var captureRegion = ResolveCaptureRegion(targetWindow, effectiveCaptureMode);
+            var captureSource = FfmpegCaptureSourceResolver.TryResolve(
+                _settings.FfmpegPath,
+                _settings,
+                _settings.CaptureMode,
+                effectiveCaptureMode,
+                targetWindow);
+            if (captureSource is not null)
+            {
+                _logger.Info($"ffmpeg capture source: {captureSource.Name}");
+            }
+
+            var arguments = FfmpegCommandBuilder.BuildCaptureArguments(_settings, outputPattern, captureRegion, captureSource);
             await ffmpegSession.StartAsync(_settings.FfmpegPath, arguments);
             return (ffmpegSession, CaptureBackend.Ffmpeg);
         }
@@ -513,9 +643,9 @@ public sealed class ReplayCoordinator
         }
     }
 
-    private GraphicsCaptureItem CreateCaptureItem(CaptureTargetWindow? targetWindow)
+    private GraphicsCaptureItem CreateCaptureItem(CaptureTargetWindow? targetWindow, CaptureMode effectiveCaptureMode)
     {
-        if (_settings.CaptureMode == CaptureMode.Window)
+        if (effectiveCaptureMode == CaptureMode.Window)
         {
             if (targetWindow is null || targetWindow.Handle == IntPtr.Zero)
             {
@@ -597,6 +727,14 @@ public sealed class ReplayCoordinator
         var name = Path.GetFileNameWithoutExtension(fileName);
         var token = name.Split('-').LastOrDefault();
         return int.TryParse(token, out var sequence) ? sequence : 0;
+    }
+
+    private bool IsCurrentCaptureSession(IReplayCaptureSession session, string sessionDirectory, int captureGeneration)
+    {
+        return captureGeneration == Volatile.Read(ref _captureGeneration)
+            && ReferenceEquals(_captureSession, session)
+            && string.Equals(_currentSessionDirectory, sessionDirectory, StringComparison.Ordinal)
+            && session.IsRunning;
     }
 
     private static string? ResolveEligibleAutoCaptureMatch(GameMatchResult result, AppSettings settings)
@@ -732,11 +870,43 @@ public sealed class ReplayCoordinator
         return ForegroundProcessProbe.TryResolveTargetWindow(activeMatch);
     }
 
-    private static string DescribeCaptureTarget(CaptureTargetWindow? targetWindow, CaptureMode captureMode)
+    private static CaptureMode ResolveEffectiveCaptureMode(CaptureTargetWindow? targetWindow, CaptureMode requestedCaptureMode)
     {
-        if (captureMode == CaptureMode.Display)
+        if (requestedCaptureMode == CaptureMode.Window && MonitorLocator.ShouldPreferMonitorCapture(targetWindow))
         {
-            return "Full display capture";
+            return CaptureMode.Display;
+        }
+
+        return requestedCaptureMode;
+    }
+
+    private CaptureMode ResolveEffectiveCaptureMode(CaptureTargetWindow? targetWindow)
+    {
+        return ResolveEffectiveCaptureMode(targetWindow, _settings.CaptureMode);
+    }
+
+    private static CaptureRegion? ResolveCaptureRegion(CaptureTargetWindow? targetWindow, CaptureMode effectiveCaptureMode)
+    {
+        if (effectiveCaptureMode == CaptureMode.Window)
+        {
+            return targetWindow?.ToCaptureRegion();
+        }
+
+        return MonitorLocator.TryGetMonitorBounds(targetWindow, out var monitorBounds)
+            ? monitorBounds.ToCaptureRegion()
+            : null;
+    }
+
+    private static string DescribeCaptureTarget(
+        CaptureTargetWindow? targetWindow,
+        CaptureMode requestedCaptureMode,
+        CaptureMode effectiveCaptureMode)
+    {
+        if (effectiveCaptureMode == CaptureMode.Display)
+        {
+            return requestedCaptureMode == CaptureMode.Window && targetWindow is not null
+                ? $"Fullscreen display capture fallback for {targetWindow.Description}"
+                : "Full display capture";
         }
 
         return targetWindow?.Description ?? "Desktop fallback";

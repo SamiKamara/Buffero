@@ -5,33 +5,25 @@ namespace Buffero.Core.Capture;
 
 public static class FfmpegCommandBuilder
 {
-    public static IReadOnlyList<string> BuildCaptureArguments(AppSettings settings, string outputPattern, CaptureRegion? captureRegion = null)
+    public static IReadOnlyList<string> BuildCaptureArguments(
+        AppSettings settings,
+        string outputPattern,
+        CaptureRegion? captureRegion = null,
+        FfmpegCaptureSource? captureSource = null)
     {
         var gop = Math.Max(settings.Fps * settings.SegmentSeconds, settings.Fps);
-        var videoFilter = BuildCaptureVideoFilter(settings.OutputResolution);
+        var source = captureSource ?? CreateGdiGrabCaptureSource(settings, captureRegion);
+        var videoFilter = BuildCaptureVideoFilter(settings.OutputResolution, source.FilterPrefix);
         var arguments = new List<string>
         {
             "-hide_banner",
             "-loglevel", "warning",
-            "-y",
-            "-f", "gdigrab",
-            "-framerate", settings.Fps.ToString(CultureInfo.InvariantCulture),
-            "-draw_mouse", "1"
+            "-y"
         };
 
-        if (captureRegion is not null)
-        {
-            arguments.AddRange(
-            [
-                "-offset_x", captureRegion.X.ToString(CultureInfo.InvariantCulture),
-                "-offset_y", captureRegion.Y.ToString(CultureInfo.InvariantCulture),
-                "-video_size", $"{captureRegion.Width}x{captureRegion.Height}"
-            ]);
-        }
-
+        arguments.AddRange(source.InputArguments);
         arguments.AddRange(
         [
-            "-i", "desktop",
             "-an",
             "-c:v", "libx264",
             "-preset", "veryfast"
@@ -57,11 +49,11 @@ public static class FfmpegCommandBuilder
         return arguments;
     }
 
-    private static string BuildCaptureVideoFilter(OutputResolutionMode outputResolution)
+    private static string BuildCaptureVideoFilter(OutputResolutionMode outputResolution, string? filterPrefix = null)
     {
         const string ensureEvenDimensionsFilter = "scale=trunc(iw/2)*2:trunc(ih/2)*2";
 
-        return outputResolution switch
+        var resolutionFilter = outputResolution switch
         {
             OutputResolutionMode.Max1080p =>
                 "scale=w='min(1920,iw)':h='min(1080,ih)':force_original_aspect_ratio=decrease,"
@@ -71,6 +63,10 @@ public static class FfmpegCommandBuilder
                 + ensureEvenDimensionsFilter,
             _ => ensureEvenDimensionsFilter
         };
+
+        return string.IsNullOrWhiteSpace(filterPrefix)
+            ? resolutionFilter
+            : $"{filterPrefix},{resolutionFilter}";
     }
 
     public static IReadOnlyList<string> BuildExportArguments(AppSettings settings, string concatFilePath, string outputPath)
@@ -104,5 +100,28 @@ public static class FfmpegCommandBuilder
         return settings.QualityInputMode == QualityInputMode.Bitrate
             ? ["-b:v", CaptureQualityEstimator.FormatFfmpegBitrate(settings.QualityBitrateMbps)]
             : ["-crf", settings.QualityCrf.ToString(CultureInfo.InvariantCulture)];
+    }
+
+    private static FfmpegCaptureSource CreateGdiGrabCaptureSource(AppSettings settings, CaptureRegion? captureRegion)
+    {
+        var arguments = new List<string>
+        {
+            "-f", "gdigrab",
+            "-framerate", settings.Fps.ToString(CultureInfo.InvariantCulture),
+            "-draw_mouse", "1"
+        };
+
+        if (captureRegion is not null)
+        {
+            arguments.AddRange(
+            [
+                "-offset_x", captureRegion.X.ToString(CultureInfo.InvariantCulture),
+                "-offset_y", captureRegion.Y.ToString(CultureInfo.InvariantCulture),
+                "-video_size", $"{captureRegion.Width}x{captureRegion.Height}"
+            ]);
+        }
+
+        arguments.AddRange(["-i", "desktop"]);
+        return new FfmpegCaptureSource("gdigrab", arguments);
     }
 }

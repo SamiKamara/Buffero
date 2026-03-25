@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Buffero.Core.Configuration;
 using Buffero.Core.Capture;
 using Windows.Graphics.Capture;
@@ -98,18 +99,7 @@ public sealed class NativeCaptureSession : IReplayCaptureSession
             while (!_stopRequested)
             {
                 var segmentPath = Path.Combine(_sessionDirectory, $"segment-{sequence:000000}.mp4");
-                using var encoder = new NativeSegmentEncoder(
-                    _frameSource!,
-                    _inputWidth,
-                    _inputHeight,
-                    _outputWidth,
-                    _outputHeight,
-                    _bitrate,
-                    (uint)_settings.Fps);
-                var result = await encoder.EncodeAsync(
-                    segmentPath,
-                    TimeSpan.FromSeconds(_settings.SegmentSeconds),
-                    CancellationToken.None);
+                var result = await EncodeSegmentAsync(segmentPath);
 
                 if (_stopRequested)
                 {
@@ -139,6 +129,37 @@ public sealed class NativeCaptureSession : IReplayCaptureSession
             IsRunning = false;
             Cleanup();
             Exited?.Invoke(_stopRequested ? 0 : exitCode);
+        }
+    }
+
+    private async Task<SegmentEncodeResult> EncodeSegmentAsync(string segmentPath)
+    {
+        var hardwareAccelerationEnabled = true;
+
+        while (true)
+        {
+            using var encoder = new NativeSegmentEncoder(
+                _frameSource!,
+                _inputWidth,
+                _inputHeight,
+                _outputWidth,
+                _outputHeight,
+                _bitrate,
+                (uint)_settings.Fps,
+                hardwareAccelerationEnabled);
+
+            try
+            {
+                return await encoder.EncodeAsync(
+                    segmentPath,
+                    TimeSpan.FromSeconds(_settings.SegmentSeconds),
+                    CancellationToken.None);
+            }
+            catch (COMException exception) when (hardwareAccelerationEnabled && !_stopRequested)
+            {
+                hardwareAccelerationEnabled = false;
+                _logger.Warn($"Native hardware transcoder failed and will retry in software. {exception.Message}");
+            }
         }
     }
 

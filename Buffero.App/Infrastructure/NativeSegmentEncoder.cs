@@ -17,10 +17,13 @@ internal sealed class NativeSegmentEncoder : IDisposable
     private readonly uint _outputHeight;
     private readonly uint _bitrate;
     private readonly uint _frameRate;
+    private readonly TimeSpan _frameDuration;
+    private readonly bool _hardwareAccelerationEnabled;
     private MediaStreamSource? _mediaStreamSource;
     private MediaTranscoder? _transcoder;
     private TimeSpan _segmentDuration;
     private TimeSpan? _segmentStartTime;
+    private CapturedSurface? _pendingFrame;
     private bool _stopRequested;
     private bool _captureEnded;
     private bool _segmentCompleted;
@@ -32,7 +35,8 @@ internal sealed class NativeSegmentEncoder : IDisposable
         uint outputWidth,
         uint outputHeight,
         uint bitrate,
-        uint frameRate)
+        uint frameRate,
+        bool hardwareAccelerationEnabled = true)
     {
         _frameSource = frameSource;
         _inputWidth = inputWidth;
@@ -41,6 +45,8 @@ internal sealed class NativeSegmentEncoder : IDisposable
         _outputHeight = outputHeight;
         _bitrate = bitrate;
         _frameRate = frameRate;
+        _frameDuration = TimeSpan.FromSeconds(1d / Math.Max(1, frameRate));
+        _hardwareAccelerationEnabled = hardwareAccelerationEnabled;
     }
 
     public async Task<SegmentEncodeResult> EncodeAsync(string outputPath, TimeSpan segmentDuration, CancellationToken cancellationToken)
@@ -49,6 +55,8 @@ internal sealed class NativeSegmentEncoder : IDisposable
 
         _segmentDuration = segmentDuration;
         _segmentStartTime = null;
+        _pendingFrame?.Dispose();
+        _pendingFrame = null;
         _stopRequested = false;
         _captureEnded = false;
         _segmentCompleted = false;
@@ -82,6 +90,8 @@ internal sealed class NativeSegmentEncoder : IDisposable
             _mediaStreamSource = null;
         }
 
+        _pendingFrame?.Dispose();
+        _pendingFrame = null;
         _transcoder = null;
     }
 
@@ -98,22 +108,24 @@ internal sealed class NativeSegmentEncoder : IDisposable
 
         _transcoder = new MediaTranscoder
         {
-            HardwareAccelerationEnabled = true
+            HardwareAccelerationEnabled = _hardwareAccelerationEnabled
         };
     }
 
     private void OnStarting(MediaStreamSource sender, MediaStreamSourceStartingEventArgs args)
     {
-        using var frame = _frameSource.WaitForNewFrame();
-        if (frame is null)
+        _pendingFrame?.Dispose();
+        _pendingFrame = _frameSource.WaitForNewFrame();
+        if (_pendingFrame is null)
         {
             _captureEnded = true;
+            _segmentStartTime = TimeSpan.Zero;
             args.Request.SetActualStartPosition(TimeSpan.Zero);
             return;
         }
 
-        _segmentStartTime = frame.SystemRelativeTime;
-        args.Request.SetActualStartPosition(frame.SystemRelativeTime);
+        _segmentStartTime = _pendingFrame.SystemRelativeTime;
+        args.Request.SetActualStartPosition(_segmentStartTime.Value);
     }
 
     private void OnSampleRequested(MediaStreamSource sender, MediaStreamSourceSampleRequestedEventArgs args)
@@ -124,7 +136,8 @@ internal sealed class NativeSegmentEncoder : IDisposable
             return;
         }
 
-        using var frame = _frameSource.WaitForNewFrame();
+        using var frame = _pendingFrame ?? _frameSource.WaitForNewFrame();
+        _pendingFrame = null;
         if (frame is null)
         {
             _captureEnded = true;
@@ -133,7 +146,19 @@ internal sealed class NativeSegmentEncoder : IDisposable
         }
 
         _segmentStartTime ??= frame.SystemRelativeTime;
-        if (frame.SystemRelativeTime - _segmentStartTime.Value >= _segmentDuration)
+        var sampleTime = frame.SystemRelativeTime;
+        var elapsed = sampleTime - _segmentStartTime.Value;
+        if (elapsed < TimeSpan.Zero)
+        {
+            elapsed = TimeSpan.Zero;
+        }
+
+        if (sampleTime < TimeSpan.Zero)
+        {
+            sampleTime = TimeSpan.Zero;
+        }
+
+        if (elapsed >= _segmentDuration)
         {
             _segmentCompleted = true;
             _stopRequested = true;
@@ -141,7 +166,9 @@ internal sealed class NativeSegmentEncoder : IDisposable
             return;
         }
 
-        args.Request.Sample = MediaStreamSample.CreateFromDirect3D11Surface(frame.Surface, frame.SystemRelativeTime);
+        var sample = MediaStreamSample.CreateFromDirect3D11Surface(frame.Surface, sampleTime);
+        sample.Duration = _frameDuration;
+        args.Request.Sample = sample;
     }
 
     private static async Task<IRandomAccessStream> OpenOutputStreamAsync(string outputPath)

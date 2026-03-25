@@ -1,13 +1,13 @@
 using System.Runtime.InteropServices;
+using Buffero.Core.Capture;
 using Windows.Graphics.Capture;
+using WinRT;
 
 namespace Buffero.App.Infrastructure;
 
 internal static class GraphicsCaptureItemFactory
 {
-    private const string GraphicsCaptureItemRuntimeClassName = "Windows.Graphics.Capture.GraphicsCaptureItem";
     private static readonly Guid GraphicsCaptureItemGuid = new("79C3F95B-31F7-4EC2-A464-632EF5D30760");
-    private static readonly Guid IGraphicsCaptureItemInteropGuid = new("3628E81B-3CAC-4C60-B7F4-23CE0E0C3356");
 
     [ComImport]
     [Guid("3628E81B-3CAC-4C60-B7F4-23CE0E0C3356")]
@@ -19,20 +19,10 @@ internal static class GraphicsCaptureItemFactory
         IntPtr CreateForMonitor(IntPtr monitor, [In] ref Guid iid);
     }
 
-    [DllImport("combase.dll", ExactSpelling = true)]
-    private static extern int RoGetActivationFactory(IntPtr activatableClassId, [In] ref Guid iid, out IntPtr factory);
-
-    [DllImport("combase.dll", ExactSpelling = true, CharSet = CharSet.Unicode)]
-    private static extern int WindowsCreateString(string sourceString, int length, out IntPtr stringHandle);
-
-    [DllImport("combase.dll", ExactSpelling = true)]
-    private static extern int WindowsDeleteString(IntPtr stringHandle);
-
     public static GraphicsCaptureItem CreateForWindow(IntPtr hwnd)
     {
         ArgumentOutOfRangeException.ThrowIfEqual(hwnd, IntPtr.Zero);
-        var factory = GetActivationFactory();
-        var interop = (IGraphicsCaptureItemInterop)factory;
+        var interop = GraphicsCaptureItem.As<IGraphicsCaptureItemInterop>();
         var itemPointer = interop.CreateForWindow(hwnd, GraphicsCaptureItemGuid);
         return FromPointer(itemPointer);
     }
@@ -40,36 +30,9 @@ internal static class GraphicsCaptureItemFactory
     public static GraphicsCaptureItem CreateForMonitor(IntPtr hmon)
     {
         ArgumentOutOfRangeException.ThrowIfEqual(hmon, IntPtr.Zero);
-        var factory = GetActivationFactory();
-        var interop = (IGraphicsCaptureItemInterop)factory;
+        var interop = GraphicsCaptureItem.As<IGraphicsCaptureItemInterop>();
         var itemPointer = interop.CreateForMonitor(hmon, GraphicsCaptureItemGuid);
         return FromPointer(itemPointer);
-    }
-
-    private static object GetActivationFactory()
-    {
-        WindowsCreateString(
-            GraphicsCaptureItemRuntimeClassName,
-            GraphicsCaptureItemRuntimeClassName.Length,
-            out var runtimeClassName).ThrowIfFailed();
-
-        try
-        {
-            var interopGuid = IGraphicsCaptureItemInteropGuid;
-            RoGetActivationFactory(runtimeClassName, ref interopGuid, out var factoryPointer).ThrowIfFailed();
-            try
-            {
-                return Marshal.GetObjectForIUnknown(factoryPointer);
-            }
-            finally
-            {
-                Marshal.Release(factoryPointer);
-            }
-        }
-        finally
-        {
-            WindowsDeleteString(runtimeClassName);
-        }
     }
 
     private static GraphicsCaptureItem FromPointer(IntPtr itemPointer)
@@ -81,7 +44,7 @@ internal static class GraphicsCaptureItemFactory
 
         try
         {
-            return (GraphicsCaptureItem)Marshal.GetObjectForIUnknown(itemPointer);
+            return GraphicsCaptureItem.FromAbi(itemPointer);
         }
         finally
         {
@@ -100,6 +63,9 @@ internal static class MonitorLocator
     [DllImport("user32.dll")]
     private static extern IntPtr MonitorFromPoint(POINT pt, uint dwFlags);
 
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
+
     public static IntPtr GetCaptureMonitor(CaptureTargetWindow? targetWindow)
     {
         if (targetWindow is not null && targetWindow.Handle != IntPtr.Zero)
@@ -114,6 +80,75 @@ internal static class MonitorLocator
         return MonitorFromPoint(new POINT(0, 0), MonitorDefaultToPrimary);
     }
 
+    public static bool TryGetMonitorBounds(CaptureTargetWindow? targetWindow, out MonitorBounds bounds)
+    {
+        var monitor = GetCaptureMonitor(targetWindow);
+        if (monitor == IntPtr.Zero)
+        {
+            bounds = default;
+            return false;
+        }
+
+        var monitorInfo = new MONITORINFO
+        {
+            cbSize = Marshal.SizeOf<MONITORINFO>()
+        };
+
+        if (!GetMonitorInfo(monitor, ref monitorInfo))
+        {
+            bounds = default;
+            return false;
+        }
+
+        bounds = new MonitorBounds(
+            monitorInfo.rcMonitor.Left,
+            monitorInfo.rcMonitor.Top,
+            monitorInfo.rcMonitor.Right - monitorInfo.rcMonitor.Left,
+            monitorInfo.rcMonitor.Bottom - monitorInfo.rcMonitor.Top);
+        return bounds.Width > 0 && bounds.Height > 0;
+    }
+
+    public static bool ShouldPreferMonitorCapture(CaptureTargetWindow? targetWindow)
+    {
+        if (targetWindow is null || !TryGetMonitorBounds(targetWindow, out var monitorBounds))
+        {
+            return false;
+        }
+
+        const int tolerance = 2;
+
+        return Math.Abs(targetWindow.Left - monitorBounds.Left) <= tolerance
+            && Math.Abs(targetWindow.Top - monitorBounds.Top) <= tolerance
+            && Math.Abs(targetWindow.Width - monitorBounds.Width) <= tolerance
+            && Math.Abs(targetWindow.Height - monitorBounds.Height) <= tolerance;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     private readonly record struct POINT(int X, int Y);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MONITORINFO
+    {
+        public int cbSize;
+        public RECT rcMonitor;
+        public RECT rcWork;
+        public uint dwFlags;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+}
+
+internal readonly record struct MonitorBounds(int Left, int Top, int Width, int Height)
+{
+    public CaptureRegion ToCaptureRegion()
+    {
+        return new CaptureRegion(Left, Top, Width, Height, $"Display region ({Width}x{Height} at {Left},{Top})");
+    }
 }

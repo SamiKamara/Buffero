@@ -41,6 +41,7 @@ internal sealed class NativeCaptureFrameSource : IDisposable
 {
     private readonly NativeDirect3DContext _graphics;
     private readonly GraphicsCaptureItem _item;
+    private readonly object _frameGate = new();
     private readonly ManualResetEvent _frameEvent = new(initialState: false);
     private readonly ManualResetEvent _closedEvent = new(initialState: false);
     private readonly WaitHandle[] _events;
@@ -78,24 +79,43 @@ internal sealed class NativeCaptureFrameSource : IDisposable
 
     public CapturedSurface? WaitForNewFrame()
     {
-        _currentFrame?.Dispose();
-        _currentFrame = null;
-        _frameEvent.Reset();
+        Direct3D11CaptureFrame? frame;
 
-        var signaled = _events[WaitHandle.WaitAny(_events)];
-        if (signaled == _closedEvent || _disposed)
+        while (true)
+        {
+            if (_disposed)
+            {
+                return null;
+            }
+
+            lock (_frameGate)
+            {
+                if (_currentFrame is not null)
+                {
+                    frame = _currentFrame;
+                    _currentFrame = null;
+                    break;
+                }
+
+                _frameEvent.Reset();
+            }
+
+            var signaled = _events[WaitHandle.WaitAny(_events)];
+            if (signaled == _closedEvent || _disposed)
+            {
+                return null;
+            }
+        }
+
+        if (frame is null)
         {
             return null;
         }
 
-        if (_currentFrame is null)
-        {
-            return null;
-        }
-
+        using var capturedFrame = frame;
         using var multithreadLock = new MultithreadLock(_graphics.Multithread);
-        using var sourceTexture = Direct3D11Interop.CreateTexture2D(_currentFrame.Surface);
-        var contentSize = _currentFrame.ContentSize;
+        using var sourceTexture = Direct3D11Interop.CreateTexture2D(capturedFrame.Surface);
+        var contentSize = capturedFrame.ContentSize;
         if (contentSize.Width > _captureSize.Width || contentSize.Height > _captureSize.Height)
         {
             throw new InvalidOperationException("The capture target size changed while native capture was running.");
@@ -110,8 +130,8 @@ internal sealed class NativeCaptureFrameSource : IDisposable
         using var copyTexture = _graphics.Device.CreateTexture2D(description);
         _graphics.DeviceContext.CopyResource(copyTexture, _blankTexture!);
 
-        var width = Math.Clamp(contentSize.Width, 0, _currentFrame.Surface.Description.Width);
-        var height = Math.Clamp(contentSize.Height, 0, _currentFrame.Surface.Description.Height);
+        var width = Math.Clamp(contentSize.Width, 0, capturedFrame.Surface.Description.Width);
+        var height = Math.Clamp(contentSize.Height, 0, capturedFrame.Surface.Description.Height);
         if (width > 0 && height > 0)
         {
             var region = new Box(0, 0, 0, width, height, 1);
@@ -121,7 +141,7 @@ internal sealed class NativeCaptureFrameSource : IDisposable
         return new CapturedSurface
         {
             Surface = Direct3D11Interop.CreateSurface(copyTexture),
-            SystemRelativeTime = _currentFrame.SystemRelativeTime
+            SystemRelativeTime = capturedFrame.SystemRelativeTime
         };
     }
 
@@ -135,6 +155,7 @@ internal sealed class NativeCaptureFrameSource : IDisposable
             size);
         _framePool.FrameArrived += OnFrameArrived;
         _session = _framePool.CreateCaptureSession(_item);
+        _session.IsCursorCaptureEnabled = true;
         _session.StartCapture();
     }
 
@@ -161,7 +182,18 @@ internal sealed class NativeCaptureFrameSource : IDisposable
 
     private void OnFrameArrived(Direct3D11CaptureFramePool sender, object args)
     {
-        _currentFrame = sender.TryGetNextFrame();
+        var nextFrame = sender.TryGetNextFrame();
+        if (nextFrame is null)
+        {
+            return;
+        }
+
+        lock (_frameGate)
+        {
+            _currentFrame?.Dispose();
+            _currentFrame = nextFrame;
+        }
+
         _frameEvent.Set();
     }
 
@@ -176,8 +208,12 @@ internal sealed class NativeCaptureFrameSource : IDisposable
         _framePool = null;
         _session?.Dispose();
         _session = null;
-        _currentFrame?.Dispose();
-        _currentFrame = null;
+        lock (_frameGate)
+        {
+            _currentFrame?.Dispose();
+            _currentFrame = null;
+        }
+
         _blankTexture?.Dispose();
         _blankTexture = null;
         _item.Closed -= OnItemClosed;
