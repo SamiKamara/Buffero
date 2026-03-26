@@ -403,16 +403,14 @@ public sealed class ReplayCoordinator
             try
             {
                 var threshold = DateTimeOffset.UtcNow.AddSeconds(-1);
-                var segments = Directory.EnumerateFiles(sessionDirectory, "segment-*.mp4", SearchOption.TopDirectoryOnly)
+                var segments = GetFinalizedSegments(Directory.EnumerateFiles(sessionDirectory, "segment-*.mp4", SearchOption.TopDirectoryOnly)
                     .Select(path => new FileInfo(path))
                     .Where(file => file.Exists && file.Length > 0 && file.LastWriteTimeUtc <= threshold.UtcDateTime)
                     .Select(file => new SegmentInfo(
                         file.FullName,
                         ParseSegmentSequence(file.Name),
                         file.Length,
-                        new DateTimeOffset(file.LastWriteTimeUtc, TimeSpan.Zero)))
-                    .OrderBy(segment => segment.Sequence)
-                    .ToArray();
+                        new DateTimeOffset(file.LastWriteTimeUtc, TimeSpan.Zero))));
 
                 if (!IsCurrentCaptureSession(session, sessionDirectory, captureGeneration))
                 {
@@ -494,6 +492,20 @@ public sealed class ReplayCoordinator
     private void OnCaptureExited(int exitCode)
     {
         _ = HandleCaptureExitedAsync(exitCode);
+    }
+
+    internal static IReadOnlyList<SegmentInfo> GetFinalizedSegments(IEnumerable<SegmentInfo> segments)
+    {
+        var orderedSegments = segments
+            .OrderBy(segment => segment.Sequence)
+            .ToArray();
+
+        if (orderedSegments.Length <= 1)
+        {
+            return [];
+        }
+
+        return orderedSegments[..^1];
     }
 
     private async Task HandleCaptureExitedAsync(int exitCode)

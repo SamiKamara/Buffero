@@ -25,20 +25,14 @@ internal static class FfmpegCaptureSourceResolver
         string? input;
         string sourceName;
 
-        if (requestedCaptureMode == CaptureMode.Window && targetWindow is not null && targetWindow.Handle != IntPtr.Zero)
-        {
-            input = CreateWindowInput(targetWindow, settings);
-            sourceName = "gfxcapture (window)";
-        }
-        else if (effectiveCaptureMode == CaptureMode.Window)
+        if (ShouldUseWindowSource(effectiveCaptureMode, targetWindow))
         {
             input = CreateWindowInput(targetWindow, settings);
             sourceName = "gfxcapture (window)";
         }
         else
         {
-            input = CreateDisplayInput(targetWindow, settings);
-            sourceName = "gfxcapture (display)";
+            input = CreateDisplayInput(targetWindow, settings, out sourceName);
         }
 
         return input is null
@@ -47,6 +41,20 @@ internal static class FfmpegCaptureSourceResolver
                 sourceName,
                 ["-f", "lavfi", "-i", input],
                 "hwdownload,format=bgra");
+    }
+
+    internal static bool ShouldUseWindowSource(CaptureMode effectiveCaptureMode, CaptureTargetWindow? targetWindow)
+    {
+        return effectiveCaptureMode == CaptureMode.Window
+            && targetWindow is not null
+            && targetWindow.Handle != IntPtr.Zero;
+    }
+
+    internal static string CreateDisplayInputFromMonitorIndex(int monitorIndex, AppSettings settings)
+    {
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"gfxcapture=monitor_idx={monitorIndex}:max_framerate={settings.Fps}:capture_cursor=1:display_border=0");
     }
 
     private static string? CreateWindowInput(CaptureTargetWindow? targetWindow, AppSettings settings)
@@ -61,14 +69,22 @@ internal static class FfmpegCaptureSourceResolver
             $"gfxcapture=hwnd={FormatHandle(targetWindow.Handle)}:max_framerate={settings.Fps}:capture_cursor=1:capture_border=0:display_border=0");
     }
 
-    private static string? CreateDisplayInput(CaptureTargetWindow? targetWindow, AppSettings settings)
+    private static string? CreateDisplayInput(CaptureTargetWindow? targetWindow, AppSettings settings, out string sourceName)
     {
+        if (MonitorLocator.TryGetMonitorIndex(targetWindow, out var monitorIndex))
+        {
+            sourceName = $"gfxcapture (display #{monitorIndex})";
+            return CreateDisplayInputFromMonitorIndex(monitorIndex, settings);
+        }
+
         var monitor = MonitorLocator.GetCaptureMonitor(targetWindow);
         if (monitor == IntPtr.Zero)
         {
+            sourceName = "gfxcapture (display)";
             return null;
         }
 
+        sourceName = "gfxcapture (display)";
         return string.Create(
             CultureInfo.InvariantCulture,
             $"gfxcapture=hmonitor={FormatHandle(monitor)}:max_framerate={settings.Fps}:capture_cursor=1:display_border=0");

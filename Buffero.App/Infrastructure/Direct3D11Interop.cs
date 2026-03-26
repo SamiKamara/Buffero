@@ -67,7 +67,7 @@ internal static class Direct3D11Interop
             FeatureLevel.Level_10_0
         };
 
-        var creationFlags = DeviceCreationFlags.BgraSupport | DeviceCreationFlags.VideoSupport;
+        var creationFlags = DeviceCreationFlags.BgraSupport;
         ID3D11Device device;
         ID3D11DeviceContext deviceContext;
 

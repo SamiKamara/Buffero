@@ -63,8 +63,13 @@ internal static class MonitorLocator
     [DllImport("user32.dll")]
     private static extern IntPtr MonitorFromPoint(POINT pt, uint dwFlags);
 
+    [DllImport("user32.dll")]
+    private static extern bool EnumDisplayMonitors(IntPtr hdc, IntPtr lprcClip, MonitorEnumProc lpfnEnum, IntPtr dwData);
+
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
+
+    private delegate bool MonitorEnumProc(IntPtr hMonitor, IntPtr hdcMonitor, IntPtr lprcMonitor, IntPtr dwData);
 
     public static IntPtr GetCaptureMonitor(CaptureTargetWindow? targetWindow)
     {
@@ -106,6 +111,36 @@ internal static class MonitorLocator
             monitorInfo.rcMonitor.Right - monitorInfo.rcMonitor.Left,
             monitorInfo.rcMonitor.Bottom - monitorInfo.rcMonitor.Top);
         return bounds.Width > 0 && bounds.Height > 0;
+    }
+
+    public static bool TryGetMonitorIndex(CaptureTargetWindow? targetWindow, out int monitorIndex)
+    {
+        var targetMonitor = GetCaptureMonitor(targetWindow);
+        if (targetMonitor == IntPtr.Zero)
+        {
+            monitorIndex = -1;
+            return false;
+        }
+
+        var currentIndex = 0;
+        var found = false;
+        var resolvedIndex = -1;
+
+        EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, (hMonitor, _, _, _) =>
+        {
+            if (hMonitor == targetMonitor)
+            {
+                resolvedIndex = currentIndex;
+                found = true;
+                return false;
+            }
+
+            currentIndex++;
+            return true;
+        }, IntPtr.Zero);
+
+        monitorIndex = resolvedIndex;
+        return found;
     }
 
     public static bool ShouldPreferMonitorCapture(CaptureTargetWindow? targetWindow)
