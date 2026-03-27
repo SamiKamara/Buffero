@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Windows.Media.Core;
 using Windows.Media.MediaProperties;
 using Windows.Media.Transcoding;
@@ -10,6 +11,9 @@ internal sealed record SegmentEncodeResult(bool SegmentCompleted, bool CaptureEn
 
 internal sealed class NativeSegmentEncoder : IDisposable
 {
+    private static readonly TimeSpan MinimumStartupFrameTimeout = TimeSpan.FromSeconds(6);
+    private static readonly TimeSpan MaximumStartupFrameTimeout = TimeSpan.FromSeconds(20);
+
     private readonly NativeCaptureFrameSource _frameSource;
     private readonly uint _inputWidth;
     private readonly uint _inputHeight;
@@ -23,10 +27,12 @@ internal sealed class NativeSegmentEncoder : IDisposable
     private MediaTranscoder? _transcoder;
     private TimeSpan _segmentDuration;
     private TimeSpan? _segmentStartTime;
+    private TimeSpan _startupFrameTimeout;
     private CapturedSurface? _pendingFrame;
     private bool _stopRequested;
     private bool _captureEnded;
     private bool _segmentCompleted;
+    private bool _timedOutWaitingForFirstFrame;
 
     public NativeSegmentEncoder(
         NativeCaptureFrameSource frameSource,
@@ -60,6 +66,8 @@ internal sealed class NativeSegmentEncoder : IDisposable
         _stopRequested = false;
         _captureEnded = false;
         _segmentCompleted = false;
+        _timedOutWaitingForFirstFrame = false;
+        _startupFrameTimeout = GetStartupFrameTimeout(segmentDuration);
 
         CreateMediaObjects();
         using var stream = await OpenOutputStreamAsync(outputPath);
@@ -77,7 +85,21 @@ internal sealed class NativeSegmentEncoder : IDisposable
         profile.Video.PixelAspectRatio.Denominator = 1;
 
         var prepared = await _transcoder!.PrepareMediaStreamSourceTranscodeAsync(_mediaStreamSource!, stream, profile);
-        await prepared.TranscodeAsync().AsTask();
+
+        try
+        {
+            await prepared.TranscodeAsync().AsTask();
+        }
+        catch (COMException exception) when (_timedOutWaitingForFirstFrame)
+        {
+            throw new InvalidOperationException("Timed out waiting for the first native capture frame.", exception);
+        }
+
+        if (_timedOutWaitingForFirstFrame)
+        {
+            throw new InvalidOperationException("Timed out waiting for the first native capture frame.");
+        }
+
         return new SegmentEncodeResult(_segmentCompleted, _captureEnded);
     }
 
@@ -115,7 +137,16 @@ internal sealed class NativeSegmentEncoder : IDisposable
     private void OnStarting(MediaStreamSource sender, MediaStreamSourceStartingEventArgs args)
     {
         _pendingFrame?.Dispose();
-        _pendingFrame = _frameSource.WaitForNewFrame();
+        _pendingFrame = _frameSource.WaitForNewFrame(_startupFrameTimeout, out var timedOut);
+        if (timedOut)
+        {
+            _timedOutWaitingForFirstFrame = true;
+            _stopRequested = true;
+            _segmentStartTime = TimeSpan.Zero;
+            args.Request.SetActualStartPosition(TimeSpan.Zero);
+            return;
+        }
+
         if (_pendingFrame is null)
         {
             _captureEnded = true;
@@ -177,5 +208,21 @@ internal sealed class NativeSegmentEncoder : IDisposable
         var folder = await StorageFolder.GetFolderFromPathAsync(Path.GetDirectoryName(outputPath)!);
         var file = await folder.CreateFileAsync(Path.GetFileName(outputPath), CreationCollisionOption.ReplaceExisting);
         return await file.OpenAsync(FileAccessMode.ReadWrite);
+    }
+
+    private static TimeSpan GetStartupFrameTimeout(TimeSpan segmentDuration)
+    {
+        var scaledTimeout = TimeSpan.FromSeconds(segmentDuration.TotalSeconds * 3);
+        if (scaledTimeout < MinimumStartupFrameTimeout)
+        {
+            return MinimumStartupFrameTimeout;
+        }
+
+        if (scaledTimeout > MaximumStartupFrameTimeout)
+        {
+            return MaximumStartupFrameTimeout;
+        }
+
+        return scaledTimeout;
     }
 }

@@ -79,6 +79,12 @@ internal sealed class NativeCaptureFrameSource : IDisposable
 
     public CapturedSurface? WaitForNewFrame()
     {
+        return WaitForNewFrame(Timeout.InfiniteTimeSpan, out _);
+    }
+
+    public CapturedSurface? WaitForNewFrame(TimeSpan timeout, out bool timedOut)
+    {
+        timedOut = false;
         Direct3D11CaptureFrame? frame;
 
         while (true)
@@ -100,7 +106,16 @@ internal sealed class NativeCaptureFrameSource : IDisposable
                 _frameEvent.Reset();
             }
 
-            var signaled = _events[WaitHandle.WaitAny(_events)];
+            var signaledIndex = WaitHandle.WaitAny(
+                _events,
+                timeout == Timeout.InfiniteTimeSpan ? Timeout.Infinite : Math.Max(0, (int)timeout.TotalMilliseconds));
+            if (signaledIndex == WaitHandle.WaitTimeout)
+            {
+                timedOut = true;
+                return null;
+            }
+
+            var signaled = _events[signaledIndex];
             if (signaled == _closedEvent || _disposed)
             {
                 return null;

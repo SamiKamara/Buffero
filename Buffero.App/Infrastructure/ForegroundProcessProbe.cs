@@ -20,6 +20,9 @@ public static class ForegroundProcessProbe
     [DllImport("user32.dll")]
     private static extern bool IsWindowVisible(IntPtr hWnd);
 
+    [DllImport("user32.dll")]
+    private static extern bool IsIconic(IntPtr hWnd);
+
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
@@ -80,37 +83,46 @@ public static class ForegroundProcessProbe
     public static CaptureTargetWindow? TryResolveTargetWindow(string? processName)
     {
         var normalized = HotkeyBinding.NormalizeExecutableToken(processName);
-        if (TryGetTargetWindow(GetForegroundWindow(), normalized, requireMatchingProcess: !string.IsNullOrWhiteSpace(normalized), out var foregroundTarget))
+        var foregroundWindow = GetForegroundWindow();
+        var candidates = new List<CaptureTargetWindow>();
+
+        if (TryGetTargetWindow(foregroundWindow, normalized, requireMatchingProcess: !string.IsNullOrWhiteSpace(normalized), out var foregroundTarget)
+            && foregroundTarget is not null)
         {
-            return foregroundTarget;
+            candidates.Add(foregroundTarget);
         }
 
         if (string.IsNullOrWhiteSpace(normalized))
         {
-            return null;
+            return SelectBestTargetWindow(candidates, foregroundWindow);
         }
 
-        CaptureTargetWindow? match = null;
+        var seenHandles = new HashSet<IntPtr>(candidates.Select(candidate => candidate.Handle));
 
         EnumWindows((hWnd, _) =>
         {
-            if (TryGetTargetWindow(hWnd, normalized, requireMatchingProcess: true, out var targetWindow))
+            if (!seenHandles.Add(hWnd))
             {
-                match = targetWindow;
-                return false;
+                return true;
+            }
+
+            if (TryGetTargetWindow(hWnd, normalized, requireMatchingProcess: true, out var targetWindow)
+                && targetWindow is not null)
+            {
+                candidates.Add(targetWindow);
             }
 
             return true;
         }, IntPtr.Zero);
 
-        return match;
+        return SelectBestTargetWindow(candidates, foregroundWindow);
     }
 
     private static bool TryGetTargetWindow(IntPtr hWnd, string? expectedProcessName, bool requireMatchingProcess, out CaptureTargetWindow? targetWindow)
     {
         targetWindow = null;
 
-        if (hWnd == IntPtr.Zero || !IsWindowVisible(hWnd))
+        if (hWnd == IntPtr.Zero || !IsWindowVisible(hWnd) || IsIconic(hWnd))
         {
             return false;
         }
@@ -160,6 +172,15 @@ public static class ForegroundProcessProbe
             width,
             height);
         return true;
+    }
+
+    internal static CaptureTargetWindow? SelectBestTargetWindow(IEnumerable<CaptureTargetWindow> windows, IntPtr foregroundWindow)
+    {
+        return windows
+            .OrderByDescending(window => (long)window.Width * window.Height)
+            .ThenByDescending(window => !string.Equals(window.WindowLabel, "(untitled)", StringComparison.Ordinal))
+            .ThenByDescending(window => window.Handle == foregroundWindow)
+            .FirstOrDefault();
     }
 
     private static string GetWindowLabel(IntPtr hWnd)
