@@ -82,6 +82,18 @@ public partial class MainWindow : Window
             Dispatcher.Invoke(() =>
             {
                 _trayIcon.Update(snapshot);
+                _gameOverlayNotifier.UpdateBufferingStatus(snapshot);
+            });
+        };
+
+        _coordinator.ReplaySavingStarted += replaySavingInfo =>
+        {
+            Dispatcher.Invoke(() =>
+            {
+                if (_viewModel.NotificationsEnabled)
+                {
+                    _gameOverlayNotifier.ShowRecordingSaving(replaySavingInfo.TargetWindow, replaySavingInfo.OutputPath);
+                }
             });
         };
 

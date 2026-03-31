@@ -326,7 +326,7 @@
                                   IsChecked="{Binding RequireForegroundWindow}" />
                         <CheckBox Grid.Row="4"
                                   Margin="0,8,0,0"
-                                  Content="Show replay-saved overlay and tray notifications"
+                                  Content="Show replay save overlays and tray notifications"
                                   IsChecked="{Binding NotificationsEnabled}" />
                         <StackPanel Grid.Row="5" Margin="0,12,0,0">
                             <TextBlock FontWeight="SemiBold" Text="Configured Game Executables" />

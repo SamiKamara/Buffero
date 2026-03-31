@@ -633,7 +633,7 @@ public sealed class MainViewModel : ObservableObject
             $"Replay Buffer Enabled: {ReplayBufferEnabled}",
             $"Capture Mode: {FormatCaptureMode(CaptureMode)}",
             $"Capture Resolution: {FormatResolutionMode(OutputResolution)}",
-            $"Replay Saved Notifications: {NotificationsEnabled}",
+            $"Replay Save Overlays + Notifications: {NotificationsEnabled}",
             $"Save Drive Free Space: {saveDriveFreeSpace}",
             $"Temp Drive Free Space: {tempDriveFreeSpace}",
             $"Hotkey: {HotkeyStatus}",

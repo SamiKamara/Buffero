@@ -87,30 +87,12 @@ internal static class MonitorLocator
 
     public static bool TryGetMonitorBounds(CaptureTargetWindow? targetWindow, out MonitorBounds bounds)
     {
-        var monitor = GetCaptureMonitor(targetWindow);
-        if (monitor == IntPtr.Zero)
-        {
-            bounds = default;
-            return false;
-        }
+        return TryGetMonitorArea(targetWindow, useWorkArea: false, out bounds);
+    }
 
-        var monitorInfo = new MONITORINFO
-        {
-            cbSize = Marshal.SizeOf<MONITORINFO>()
-        };
-
-        if (!GetMonitorInfo(monitor, ref monitorInfo))
-        {
-            bounds = default;
-            return false;
-        }
-
-        bounds = new MonitorBounds(
-            monitorInfo.rcMonitor.Left,
-            monitorInfo.rcMonitor.Top,
-            monitorInfo.rcMonitor.Right - monitorInfo.rcMonitor.Left,
-            monitorInfo.rcMonitor.Bottom - monitorInfo.rcMonitor.Top);
-        return bounds.Width > 0 && bounds.Height > 0;
+    public static bool TryGetMonitorWorkArea(CaptureTargetWindow? targetWindow, out MonitorBounds bounds)
+    {
+        return TryGetMonitorArea(targetWindow, useWorkArea: true, out bounds);
     }
 
     public static bool TryGetMonitorIndex(CaptureTargetWindow? targetWindow, out int monitorIndex)
@@ -156,6 +138,35 @@ internal static class MonitorLocator
             && Math.Abs(targetWindow.Top - monitorBounds.Top) <= tolerance
             && Math.Abs(targetWindow.Width - monitorBounds.Width) <= tolerance
             && Math.Abs(targetWindow.Height - monitorBounds.Height) <= tolerance;
+    }
+
+    private static bool TryGetMonitorArea(CaptureTargetWindow? targetWindow, bool useWorkArea, out MonitorBounds bounds)
+    {
+        var monitor = GetCaptureMonitor(targetWindow);
+        if (monitor == IntPtr.Zero)
+        {
+            bounds = default;
+            return false;
+        }
+
+        var monitorInfo = new MONITORINFO
+        {
+            cbSize = Marshal.SizeOf<MONITORINFO>()
+        };
+
+        if (!GetMonitorInfo(monitor, ref monitorInfo))
+        {
+            bounds = default;
+            return false;
+        }
+
+        var area = useWorkArea ? monitorInfo.rcWork : monitorInfo.rcMonitor;
+        bounds = new MonitorBounds(
+            area.Left,
+            area.Top,
+            area.Right - area.Left,
+            area.Bottom - area.Top);
+        return bounds.Width > 0 && bounds.Height > 0;
     }
 
     [StructLayout(LayoutKind.Sequential)]

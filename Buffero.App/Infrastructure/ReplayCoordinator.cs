@@ -52,6 +52,8 @@ public sealed class ReplayCoordinator
 
     public event Action<ReplayCoordinatorSnapshot>? SnapshotChanged;
 
+    public event Action<ReplaySavingInfo>? ReplaySavingStarted;
+
     public event Action<ReplaySavedInfo>? ReplaySaved;
 
     public Task TriggerDetectionAsync()
@@ -186,6 +188,7 @@ public sealed class ReplayCoordinator
         string outputPath;
         string? concatPath = null;
         string sessionDirectory;
+        ReplaySavingInfo? replaySavingInfo = null;
         ReplaySavedInfo? replaySavedInfo = null;
 
         await _gate.WaitAsync();
@@ -212,11 +215,24 @@ public sealed class ReplayCoordinator
                 ClipNameBuilder.Build(_settings.ClipFilePattern, DateTimeOffset.Now, _activeMatch));
             EnsureSufficientExportSpace(outputPath, snapshot);
             _stateMachine.MarkExportQueued();
+            replaySavingInfo = new ReplaySavingInfo(outputPath, _activeMatch, _captureTargetWindow);
             PublishSnapshot();
         }
         finally
         {
             _gate.Release();
+        }
+
+        if (replaySavingInfo is not null)
+        {
+            try
+            {
+                ReplaySavingStarted?.Invoke(replaySavingInfo);
+            }
+            catch (Exception exception)
+            {
+                _logger.Error("Replay saving notification failed.", exception);
+            }
         }
 
         try
@@ -479,7 +495,8 @@ public sealed class ReplayCoordinator
             _activeCaptureBackend,
             _settings.FfmpegPath,
             _currentSessionDirectory,
-            _captureTargetDescription));
+            _captureTargetDescription,
+            _captureTargetWindow));
     }
 
     private void OnCaptureExited(int exitCode)

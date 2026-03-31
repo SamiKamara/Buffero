@@ -15,4 +15,5 @@ public sealed record ReplayCoordinatorSnapshot(
     CaptureBackend ActiveCaptureBackend,
     string FfmpegPath,
     string? SessionDirectory,
-    string CaptureTargetDescription);
+    string CaptureTargetDescription,
+    CaptureTargetWindow? TargetWindow);
