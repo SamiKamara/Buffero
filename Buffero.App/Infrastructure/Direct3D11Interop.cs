@@ -49,6 +49,7 @@ internal sealed class NativeDirect3DContext : IDisposable
 
 internal static class Direct3D11Interop
 {
+    private static readonly Guid Id3D11DeviceGuid = new("DB6F6DDB-AC77-4E88-8253-819DF9BBF140");
     private static readonly Guid Id3D11Texture2DGuid = new("6F15AAF2-D208-4E89-9AB4-489535D34F9C");
 
     [DllImport("d3d11.dll", ExactSpelling = true)]
@@ -88,16 +89,27 @@ internal static class Direct3D11Interop
             return Create(useWarp: true);
         }
 
-        var multithread = device.QueryInterfaceOrNull<ID3D11Multithread>();
-        multithread?.SetMultithreadProtected(true);
-
         using var dxgiDevice = device.QueryInterface<IDXGIDevice>();
         CreateDirect3D11DeviceFromDXGIDevice(dxgiDevice.NativePointer, out var graphicsDevicePointer).ThrowIfFailed();
 
         try
         {
             var winrtDevice = MarshalInterface<IDirect3DDevice>.FromAbi(graphicsDevicePointer);
-            return new NativeDirect3DContext(device, deviceContext, winrtDevice, multithread);
+            var interopDevice = CreateDevice(winrtDevice);
+            var interopContext = interopDevice.ImmediateContext;
+            var multithread = interopDevice.QueryInterfaceOrNull<ID3D11Multithread>();
+            multithread?.SetMultithreadProtected(true);
+
+            deviceContext.Dispose();
+            device.Dispose();
+
+            return new NativeDirect3DContext(interopDevice, interopContext, winrtDevice, multithread);
+        }
+        catch
+        {
+            deviceContext.Dispose();
+            device.Dispose();
+            throw;
         }
         finally
         {
@@ -122,9 +134,17 @@ internal static class Direct3D11Interop
 
     public static ID3D11Texture2D CreateTexture2D(IDirect3DSurface surface)
     {
-        var access = (IDirect3DDxgiInterfaceAccess)surface;
+        var access = surface.As<IDirect3DDxgiInterfaceAccess>();
         var iid = Id3D11Texture2DGuid;
         var texturePointer = access.GetInterface(ref iid);
         return new ID3D11Texture2D(texturePointer);
+    }
+
+    private static ID3D11Device CreateDevice(IDirect3DDevice device)
+    {
+        var access = device.As<IDirect3DDxgiInterfaceAccess>();
+        var iid = Id3D11DeviceGuid;
+        var devicePointer = access.GetInterface(ref iid);
+        return new ID3D11Device(devicePointer);
     }
 }
