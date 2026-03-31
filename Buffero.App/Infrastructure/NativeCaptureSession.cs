@@ -7,6 +7,9 @@ namespace Buffero.App.Infrastructure;
 
 public sealed class NativeCaptureSession : IReplayCaptureSession
 {
+    private static readonly TimeSpan MinimumSegmentCompletionTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan MaximumSegmentCompletionTimeout = TimeSpan.FromSeconds(30);
+
     private readonly AppSettings _settings;
     private readonly FileLogger _logger;
     private readonly GraphicsCaptureItem _item;
@@ -93,13 +96,14 @@ public sealed class NativeCaptureSession : IReplayCaptureSession
     {
         var sequence = 1;
         var exitCode = 0;
+        var segmentCompletionTimeout = GetSegmentCompletionTimeout(_settings.SegmentSeconds);
 
         try
         {
             while (!_stopRequested)
             {
                 var segmentPath = Path.Combine(_sessionDirectory, $"segment-{sequence:000000}.mp4");
-                var result = await EncodeSegmentAsync(segmentPath);
+                var result = await EncodeSegmentAsync(segmentPath, segmentCompletionTimeout);
 
                 if (_stopRequested)
                 {
@@ -109,6 +113,11 @@ public sealed class NativeCaptureSession : IReplayCaptureSession
                 if (result.CaptureEnded)
                 {
                     throw new InvalidOperationException("The native capture target closed or became unavailable.");
+                }
+
+                if (!result.SegmentCompleted)
+                {
+                    throw new InvalidOperationException("The native encoder stopped before finalizing a replay segment.");
                 }
 
                 if (!File.Exists(segmentPath) || new FileInfo(segmentPath).Length <= 0)
@@ -132,7 +141,7 @@ public sealed class NativeCaptureSession : IReplayCaptureSession
         }
     }
 
-    private async Task<SegmentEncodeResult> EncodeSegmentAsync(string segmentPath)
+    private async Task<SegmentEncodeResult> EncodeSegmentAsync(string segmentPath, TimeSpan segmentCompletionTimeout)
     {
         var hardwareAccelerationEnabled = true;
 
@@ -150,10 +159,32 @@ public sealed class NativeCaptureSession : IReplayCaptureSession
 
             try
             {
-                return await encoder.EncodeAsync(
+                var encodeTask = encoder.EncodeAsync(
                     segmentPath,
                     TimeSpan.FromSeconds(_settings.SegmentSeconds),
                     CancellationToken.None);
+
+                try
+                {
+                    return await encodeTask.WaitAsync(segmentCompletionTimeout);
+                }
+                catch (TimeoutException exception) when (!_stopRequested)
+                {
+                    _frameSource?.Dispose();
+
+                    try
+                    {
+                        await encodeTask;
+                    }
+                    catch
+                    {
+                        // The session is being failed and cleaned up below.
+                    }
+
+                    throw new InvalidOperationException(
+                        $"The native encoder did not finalize a replay segment within {segmentCompletionTimeout.TotalSeconds:0.#} seconds.",
+                        exception);
+                }
             }
             catch (COMException exception) when (hardwareAccelerationEnabled && !_stopRequested)
             {
@@ -161,6 +192,22 @@ public sealed class NativeCaptureSession : IReplayCaptureSession
                 _logger.Warn($"Native hardware transcoder failed and will retry in software. {exception.Message}");
             }
         }
+    }
+
+    internal static TimeSpan GetSegmentCompletionTimeout(int segmentSeconds)
+    {
+        var scaledTimeout = TimeSpan.FromSeconds(Math.Max(1, segmentSeconds) * 4);
+        if (scaledTimeout < MinimumSegmentCompletionTimeout)
+        {
+            return MinimumSegmentCompletionTimeout;
+        }
+
+        if (scaledTimeout > MaximumSegmentCompletionTimeout)
+        {
+            return MaximumSegmentCompletionTimeout;
+        }
+
+        return scaledTimeout;
     }
 
     private void Cleanup()

@@ -11,6 +11,8 @@ namespace Buffero.App.Infrastructure;
 public sealed class ReplayCoordinator
 {
     private static readonly TimeSpan AutoStartDebounceInterval = TimeSpan.FromSeconds(2.5);
+    private static readonly TimeSpan SegmentMonitorStabilityThreshold = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan SaveSnapshotStabilityThreshold = TimeSpan.FromMilliseconds(250);
 
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly object _segmentCatalogSync = new();
@@ -195,17 +197,14 @@ public sealed class ReplayCoordinator
                 throw new InvalidOperationException("Replay buffer is disabled. Enable it before saving a replay.");
             }
 
-            lock (_segmentCatalogSync)
-            {
-                snapshot = _segmentCatalog.GetReplaySnapshot(_settings.BufferSeconds).ToList();
-            }
+            sessionDirectory = _currentSessionDirectory ?? Path.Combine(_paths.TempSessionsDirectory, "exports");
+            snapshot = GetLatestReplaySnapshot(sessionDirectory, SaveSnapshotStabilityThreshold).ToList();
 
             if (snapshot.Count == 0)
             {
                 throw new InvalidOperationException("No finalized replay segments are buffered yet.");
             }
 
-            sessionDirectory = _currentSessionDirectory ?? Path.Combine(_paths.TempSessionsDirectory, "exports");
             Directory.CreateDirectory(sessionDirectory);
 
             outputPath = Path.Combine(
@@ -402,15 +401,9 @@ public sealed class ReplayCoordinator
 
             try
             {
-                var threshold = DateTimeOffset.UtcNow.AddSeconds(-1);
-                var segments = GetFinalizedSegments(Directory.EnumerateFiles(sessionDirectory, "segment-*.mp4", SearchOption.TopDirectoryOnly)
-                    .Select(path => new FileInfo(path))
-                    .Where(file => file.Exists && file.Length > 0 && file.LastWriteTimeUtc <= threshold.UtcDateTime)
-                    .Select(file => new SegmentInfo(
-                        file.FullName,
-                        ParseSegmentSequence(file.Name),
-                        file.Length,
-                        new DateTimeOffset(file.LastWriteTimeUtc, TimeSpan.Zero))));
+                var segments = ReadStableSegments(
+                    sessionDirectory,
+                    DateTimeOffset.UtcNow - SegmentMonitorStabilityThreshold);
 
                 if (!IsCurrentCaptureSession(session, sessionDirectory, captureGeneration))
                 {
@@ -496,16 +489,70 @@ public sealed class ReplayCoordinator
 
     internal static IReadOnlyList<SegmentInfo> GetFinalizedSegments(IEnumerable<SegmentInfo> segments)
     {
-        var orderedSegments = segments
+        return segments
             .OrderBy(segment => segment.Sequence)
             .ToArray();
+    }
 
-        if (orderedSegments.Length <= 1)
+    internal static IReadOnlyList<SegmentInfo> ReadStableSegments(
+        string sessionDirectory,
+        DateTimeOffset stableBeforeUtc)
+    {
+        if (string.IsNullOrWhiteSpace(sessionDirectory) || !Directory.Exists(sessionDirectory))
         {
             return [];
         }
 
-        return orderedSegments[..^1];
+        return GetFinalizedSegments(Directory.EnumerateFiles(sessionDirectory, "segment-*.mp4", SearchOption.TopDirectoryOnly)
+            .Select(path => new FileInfo(path))
+            .Where(file => IsStableSegmentFile(file, stableBeforeUtc))
+            .Select(file => new SegmentInfo(
+                file.FullName,
+                ParseSegmentSequence(file.Name),
+                file.Length,
+                new DateTimeOffset(file.LastWriteTimeUtc, TimeSpan.Zero))));
+    }
+
+    private IReadOnlyList<SegmentInfo> GetLatestReplaySnapshot(
+        string sessionDirectory,
+        TimeSpan stabilityThreshold)
+    {
+        var stableSegments = ReadStableSegments(
+            sessionDirectory,
+            DateTimeOffset.UtcNow - stabilityThreshold);
+        if (stableSegments.Count > 0)
+        {
+            var liveCatalog = new SegmentCatalog(_settings.SegmentSeconds);
+            liveCatalog.ReplaceSegments(stableSegments);
+            return liveCatalog.GetReplaySnapshot(_settings.BufferSeconds);
+        }
+
+        lock (_segmentCatalogSync)
+        {
+            return _segmentCatalog.GetReplaySnapshot(_settings.BufferSeconds).ToArray();
+        }
+    }
+
+    private static bool IsStableSegmentFile(FileInfo file, DateTimeOffset stableBeforeUtc)
+    {
+        if (!file.Exists || file.Length <= 0 || file.LastWriteTimeUtc > stableBeforeUtc.UtcDateTime)
+        {
+            return false;
+        }
+
+        try
+        {
+            using var stream = new FileStream(file.FullName, FileMode.Open, FileAccess.Read, FileShare.None);
+            return stream.Length > 0;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     private async Task HandleCaptureExitedAsync(int exitCode)
@@ -574,6 +621,12 @@ public sealed class ReplayCoordinator
         CaptureBackend? backendOverride = null)
     {
         var requestedBackend = backendOverride ?? _settings.CaptureBackend;
+        if (ShouldPreferFfmpegCapture(requestedBackend, effectiveCaptureMode) && CanUseFfmpeg())
+        {
+            _logger.Info("Using ffmpeg capture because native display fallback drops replay time between segment rotations.");
+            requestedBackend = CaptureBackend.Ffmpeg;
+        }
+
         Exception? nativeFailure = null;
 
         if (requestedBackend == CaptureBackend.Native)
@@ -624,6 +677,21 @@ public sealed class ReplayCoordinator
         }
 
         throw new InvalidOperationException("ffmpeg was not found. Set the ffmpeg path in settings or switch back to the native backend.");
+    }
+
+    internal bool ShouldPreferFfmpegCapture(CaptureBackend requestedBackend, CaptureMode effectiveCaptureMode)
+    {
+        return ShouldPreferFfmpegCapture(requestedBackend, effectiveCaptureMode, _settings.CaptureMode);
+    }
+
+    internal static bool ShouldPreferFfmpegCapture(
+        CaptureBackend requestedBackend,
+        CaptureMode effectiveCaptureMode,
+        CaptureMode requestedCaptureMode)
+    {
+        return requestedBackend == CaptureBackend.Native
+            && requestedCaptureMode == CaptureMode.Window
+            && effectiveCaptureMode == CaptureMode.Display;
     }
 
     private async Task RunFfmpegOnceAsync(IReadOnlyList<string> arguments, CancellationToken cancellationToken)

@@ -42,6 +42,7 @@ internal sealed class NativeCaptureFrameSource : IDisposable
     private readonly NativeDirect3DContext _graphics;
     private readonly GraphicsCaptureItem _item;
     private readonly object _frameGate = new();
+    private readonly SingleItemBuffer<CapturedSurface> _returnedFrameBuffer = new();
     private readonly ManualResetEvent _frameEvent = new(initialState: false);
     private readonly ManualResetEvent _closedEvent = new(initialState: false);
     private readonly WaitHandle[] _events;
@@ -92,6 +93,12 @@ internal sealed class NativeCaptureFrameSource : IDisposable
             if (_disposed)
             {
                 return null;
+            }
+
+            var returnedFrame = _returnedFrameBuffer.Take();
+            if (returnedFrame is not null)
+            {
+                return returnedFrame;
             }
 
             lock (_frameGate)
@@ -160,6 +167,19 @@ internal sealed class NativeCaptureFrameSource : IDisposable
         };
     }
 
+    public void ReturnFrame(CapturedSurface frame)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+
+        if (_disposed)
+        {
+            frame.Dispose();
+            return;
+        }
+
+        _returnedFrameBuffer.Store(frame);
+    }
+
     private void InitializeCapture(SizeInt32 size)
     {
         _item.Closed += OnItemClosed;
@@ -223,6 +243,7 @@ internal sealed class NativeCaptureFrameSource : IDisposable
         _framePool = null;
         _session?.Dispose();
         _session = null;
+        _returnedFrameBuffer.Clear();
         lock (_frameGate)
         {
             _currentFrame?.Dispose();

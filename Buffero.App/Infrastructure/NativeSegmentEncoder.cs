@@ -25,10 +25,11 @@ internal sealed class NativeSegmentEncoder : IDisposable
     private readonly bool _hardwareAccelerationEnabled;
     private MediaStreamSource? _mediaStreamSource;
     private MediaTranscoder? _transcoder;
+    private CapturedSurface? _currentFrame;
     private TimeSpan _segmentDuration;
-    private TimeSpan? _segmentStartTime;
     private TimeSpan _startupFrameTimeout;
-    private CapturedSurface? _pendingFrame;
+    private int _emittedFrameCount;
+    private int _targetFrameCount;
     private bool _stopRequested;
     private bool _captureEnded;
     private bool _segmentCompleted;
@@ -60,9 +61,10 @@ internal sealed class NativeSegmentEncoder : IDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
 
         _segmentDuration = segmentDuration;
-        _segmentStartTime = null;
-        _pendingFrame?.Dispose();
-        _pendingFrame = null;
+        _currentFrame?.Dispose();
+        _currentFrame = null;
+        _emittedFrameCount = 0;
+        _targetFrameCount = GetTargetFrameCount(segmentDuration, _frameRate);
         _stopRequested = false;
         _captureEnded = false;
         _segmentCompleted = false;
@@ -112,8 +114,8 @@ internal sealed class NativeSegmentEncoder : IDisposable
             _mediaStreamSource = null;
         }
 
-        _pendingFrame?.Dispose();
-        _pendingFrame = null;
+        _currentFrame?.Dispose();
+        _currentFrame = null;
         _transcoder = null;
     }
 
@@ -136,27 +138,24 @@ internal sealed class NativeSegmentEncoder : IDisposable
 
     private void OnStarting(MediaStreamSource sender, MediaStreamSourceStartingEventArgs args)
     {
-        _pendingFrame?.Dispose();
-        _pendingFrame = _frameSource.WaitForNewFrame(_startupFrameTimeout, out var timedOut);
+        _currentFrame?.Dispose();
+        _currentFrame = _frameSource.WaitForNewFrame(_startupFrameTimeout, out var timedOut);
         if (timedOut)
         {
             _timedOutWaitingForFirstFrame = true;
             _stopRequested = true;
-            _segmentStartTime = TimeSpan.Zero;
             args.Request.SetActualStartPosition(TimeSpan.Zero);
             return;
         }
 
-        if (_pendingFrame is null)
+        if (_currentFrame is null)
         {
             _captureEnded = true;
-            _segmentStartTime = TimeSpan.Zero;
             args.Request.SetActualStartPosition(TimeSpan.Zero);
             return;
         }
 
-        _segmentStartTime = _pendingFrame.SystemRelativeTime;
-        args.Request.SetActualStartPosition(_segmentStartTime.Value);
+        args.Request.SetActualStartPosition(TimeSpan.Zero);
     }
 
     private void OnSampleRequested(MediaStreamSource sender, MediaStreamSourceSampleRequestedEventArgs args)
@@ -167,29 +166,7 @@ internal sealed class NativeSegmentEncoder : IDisposable
             return;
         }
 
-        using var frame = _pendingFrame ?? _frameSource.WaitForNewFrame();
-        _pendingFrame = null;
-        if (frame is null)
-        {
-            _captureEnded = true;
-            args.Request.Sample = null;
-            return;
-        }
-
-        _segmentStartTime ??= frame.SystemRelativeTime;
-        var sampleTime = frame.SystemRelativeTime;
-        var elapsed = sampleTime - _segmentStartTime.Value;
-        if (elapsed < TimeSpan.Zero)
-        {
-            elapsed = TimeSpan.Zero;
-        }
-
-        if (sampleTime < TimeSpan.Zero)
-        {
-            sampleTime = TimeSpan.Zero;
-        }
-
-        if (elapsed >= _segmentDuration)
+        if (_emittedFrameCount >= _targetFrameCount)
         {
             _segmentCompleted = true;
             _stopRequested = true;
@@ -197,9 +174,45 @@ internal sealed class NativeSegmentEncoder : IDisposable
             return;
         }
 
-        var sample = MediaStreamSample.CreateFromDirect3D11Surface(frame.Surface, sampleTime);
-        sample.Duration = _frameDuration;
-        args.Request.Sample = sample;
+        try
+        {
+            if (_emittedFrameCount > 0)
+            {
+                var nextFrame = _frameSource.WaitForNewFrame(_frameDuration, out var timedOut);
+                if (nextFrame is not null)
+                {
+                    _currentFrame?.Dispose();
+                    _currentFrame = nextFrame;
+                }
+                else if (!timedOut)
+                {
+                    _captureEnded = true;
+                    args.Request.Sample = null;
+                    return;
+                }
+            }
+
+            if (_currentFrame is null)
+            {
+                _captureEnded = true;
+                args.Request.Sample = null;
+                return;
+            }
+
+            var sampleTime = GetSampleTime(_emittedFrameCount, _frameRate);
+            var sample = MediaStreamSample.CreateFromDirect3D11Surface(_currentFrame.Surface, sampleTime);
+            sample.Duration = _frameDuration;
+            args.Request.Sample = sample;
+            _emittedFrameCount++;
+            if (_emittedFrameCount >= _targetFrameCount)
+            {
+                _segmentCompleted = true;
+                _stopRequested = true;
+            }
+        }
+        finally
+        {
+        }
     }
 
     private static async Task<IRandomAccessStream> OpenOutputStreamAsync(string outputPath)
@@ -224,5 +237,17 @@ internal sealed class NativeSegmentEncoder : IDisposable
         }
 
         return scaledTimeout;
+    }
+
+    internal static int GetTargetFrameCount(TimeSpan segmentDuration, uint frameRate)
+    {
+        return Math.Max(
+            1,
+            (int)Math.Round(segmentDuration.TotalSeconds * Math.Max(1, frameRate), MidpointRounding.AwayFromZero));
+    }
+
+    internal static TimeSpan GetSampleTime(int sampleIndex, uint frameRate)
+    {
+        return TimeSpan.FromSeconds(sampleIndex / (double)Math.Max(1, frameRate));
     }
 }
