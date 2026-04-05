@@ -7,24 +7,33 @@ namespace Buffero.App.Infrastructure;
 
 public sealed class HotkeyManager : IDisposable
 {
-    private const int PrimaryHotkeyId = 0xB00F;
-    private const int AltGrHotkeyId = 0xB010;
     private const int WmHotkey = 0x0312;
     private const uint ModAlt = 0x0001;
     private const uint ModControl = 0x0002;
     private const uint ModShift = 0x0004;
 
+    private readonly string _registrationLabel;
+    private readonly int _primaryHotkeyId;
+    private readonly int _altGrHotkeyId;
     private HwndSource? _source;
     private IntPtr _handle;
-    private HotkeyBinding _binding = HotkeyBinding.Default;
+    private HotkeyBinding? _binding = HotkeyBinding.Default;
 
-    public event Action? SaveReplayPressed;
+    public HotkeyManager(string registrationLabel, int primaryHotkeyId, int altGrHotkeyId)
+    {
+        _registrationLabel = registrationLabel;
+        _primaryHotkeyId = primaryHotkeyId;
+        _altGrHotkeyId = altGrHotkeyId;
+        RegistrationMessage = $"{_registrationLabel} is not registered.";
+    }
+
+    public event Action? Pressed;
 
     public event Action<bool, string>? RegistrationChanged;
 
     public bool IsRegistered { get; private set; }
 
-    public string RegistrationMessage { get; private set; } = "Save hotkey is not registered.";
+    public string RegistrationMessage { get; private set; }
 
     public void Attach(Window window)
     {
@@ -33,9 +42,11 @@ public sealed class HotkeyManager : IDisposable
         _source?.AddHook(WndProc);
     }
 
-    public void UpdateBinding(HotkeyBinding binding)
+    public void UpdateBinding(HotkeyBinding? binding)
     {
-        _binding = new HotkeyBinding
+        _binding = binding is null
+            ? null
+            : new HotkeyBinding
         {
             Ctrl = binding.Ctrl,
             Alt = binding.Alt,
@@ -43,7 +54,7 @@ public sealed class HotkeyManager : IDisposable
             Key = binding.Key
         };
 
-        _binding.Normalize();
+        _binding?.Normalize();
         TryRegisterCurrentHotkey();
     }
 
@@ -51,8 +62,8 @@ public sealed class HotkeyManager : IDisposable
     {
         if (_handle != IntPtr.Zero)
         {
-            UnregisterHotKey(_handle, PrimaryHotkeyId);
-            UnregisterHotKey(_handle, AltGrHotkeyId);
+            UnregisterHotKey(_handle, _primaryHotkeyId);
+            UnregisterHotKey(_handle, _altGrHotkeyId);
         }
 
         _source?.RemoveHook(WndProc);
@@ -63,26 +74,34 @@ public sealed class HotkeyManager : IDisposable
         if (_handle == IntPtr.Zero)
         {
             IsRegistered = false;
-            RegistrationMessage = "Save hotkey could not be registered because the window handle is unavailable.";
+            RegistrationMessage = $"{_registrationLabel} could not be registered because the window handle is unavailable.";
             RegistrationChanged?.Invoke(IsRegistered, RegistrationMessage);
             return;
         }
 
-        UnregisterHotKey(_handle, PrimaryHotkeyId);
-        UnregisterHotKey(_handle, AltGrHotkeyId);
+        UnregisterHotKey(_handle, _primaryHotkeyId);
+        UnregisterHotKey(_handle, _altGrHotkeyId);
+
+        if (_binding is null)
+        {
+            IsRegistered = false;
+            RegistrationMessage = $"{_registrationLabel} is not registered.";
+            RegistrationChanged?.Invoke(IsRegistered, RegistrationMessage);
+            return;
+        }
 
         var modifiers = (_binding.Ctrl ? ModControl : 0)
                         | (_binding.Alt ? ModAlt : 0)
                         | (_binding.Shift ? ModShift : 0);
         var virtualKey = GetVirtualKey(_binding.Key);
 
-        if (!RegisterHotKey(_handle, PrimaryHotkeyId, modifiers, virtualKey))
+        if (!RegisterHotKey(_handle, _primaryHotkeyId, modifiers, virtualKey))
         {
             var error = Marshal.GetLastWin32Error();
             IsRegistered = false;
             RegistrationMessage = error == 1409
-                ? $"Save hotkey unavailable: {_binding.ToDisplayString()} is already in use."
-                : $"Save hotkey unavailable: failed to register {_binding.ToDisplayString()} (Win32 {error}).";
+                ? $"{_registrationLabel} unavailable: {_binding.ToDisplayString()} is already in use."
+                : $"{_registrationLabel} unavailable: failed to register {_binding.ToDisplayString()} (Win32 {error}).";
             RegistrationChanged?.Invoke(IsRegistered, RegistrationMessage);
             return;
         }
@@ -90,18 +109,18 @@ public sealed class HotkeyManager : IDisposable
         var altGrRegistered = TryRegisterAltGrVariant(modifiers, virtualKey);
         IsRegistered = true;
         RegistrationMessage = altGrRegistered
-            ? $"Save hotkey ready: {_binding.ToDisplayString()} (Right Alt supported)"
-            : $"Save hotkey ready: {_binding.ToDisplayString()}";
+            ? $"{_registrationLabel} ready: {_binding.ToDisplayString()} (Right Alt supported)"
+            : $"{_registrationLabel} ready: {_binding.ToDisplayString()}";
         RegistrationChanged?.Invoke(IsRegistered, RegistrationMessage);
     }
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
         if (msg == WmHotkey
-            && (wParam.ToInt32() == PrimaryHotkeyId || wParam.ToInt32() == AltGrHotkeyId))
+            && (wParam.ToInt32() == _primaryHotkeyId || wParam.ToInt32() == _altGrHotkeyId))
         {
             handled = true;
-            SaveReplayPressed?.Invoke();
+            Pressed?.Invoke();
         }
 
         return IntPtr.Zero;
@@ -128,13 +147,14 @@ public sealed class HotkeyManager : IDisposable
 
     private bool TryRegisterAltGrVariant(uint primaryModifiers, uint virtualKey)
     {
-        if (!_binding.Alt || _binding.Ctrl)
+        var binding = _binding;
+        if (binding is null || !binding.Alt || binding.Ctrl)
         {
             return false;
         }
 
         var altGrModifiers = primaryModifiers | ModControl;
-        return RegisterHotKey(_handle, AltGrHotkeyId, altGrModifiers, virtualKey);
+        return RegisterHotKey(_handle, _altGrHotkeyId, altGrModifiers, virtualKey);
     }
 
     [DllImport("user32.dll", SetLastError = true)]

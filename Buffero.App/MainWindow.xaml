@@ -319,6 +319,7 @@
                         <CheckBox Grid.Row="2"
                                   Margin="0,8,0,0"
                                   Content="Enable auto-start when a configured game is found"
+                                  IsEnabled="{Binding IsAutomaticBufferActivationMode}"
                                   IsChecked="{Binding AutoStartEnabled}" />
                         <CheckBox Grid.Row="3"
                                   Margin="0,8,0,0"
@@ -344,13 +345,18 @@
                 </GroupBox>
 
                 <GroupBox Header="Hotkey Settings">
-                    <Grid Margin="12">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                        </Grid.RowDefinitions>
+                    <StackPanel Margin="12">
+                        <TextBlock FontWeight="SemiBold" Text="Buffer Activation Mode" />
+                        <ComboBox Margin="0,6,0,0"
+                                  ItemsSource="{Binding SupportedBufferActivationModes}"
+                                  DisplayMemberPath="Label"
+                                  SelectedValuePath="Value"
+                                  SelectedValue="{Binding BufferActivationMode}" />
 
-                        <StackPanel Orientation="Horizontal">
+                        <TextBlock Margin="0,14,0,0"
+                                   FontWeight="SemiBold"
+                                   Text="Save Replay Hotkey" />
+                        <StackPanel Margin="0,6,0,0" Orientation="Horizontal">
                             <CheckBox Margin="0,0,16,0"
                                       Content="Ctrl"
                                       IsChecked="{Binding HotkeyCtrl}" />
@@ -364,11 +370,45 @@
                                       ItemsSource="{Binding SupportedHotkeyKeys}"
                                       SelectedItem="{Binding SelectedHotkeyKey}" />
                         </StackPanel>
-                        <TextBlock Grid.Row="1"
-                                   Margin="0,12,0,0"
+                        <TextBlock Margin="0,8,0,0"
                                    Foreground="#555"
                                    Text="{Binding HotkeyPreview}" />
-                    </Grid>
+                        <TextBlock Margin="0,4,0,0"
+                                   Foreground="#555"
+                                   TextWrapping="Wrap"
+                                   Text="{Binding HotkeyStatus}" />
+
+                        <TextBlock Margin="0,14,0,0"
+                                   FontWeight="SemiBold"
+                                   Text="Buffer Toggle Hotkey" />
+                        <TextBlock Margin="0,4,0,0"
+                                   Foreground="#666"
+                                   TextWrapping="Wrap"
+                                   Text="Used when buffer activation mode is set to Toggle buffering with a hotkey." />
+                        <StackPanel Margin="0,6,0,0"
+                                    Orientation="Horizontal"
+                                    IsEnabled="{Binding IsHotkeyBufferActivationMode}">
+                            <CheckBox Margin="0,0,16,0"
+                                      Content="Ctrl"
+                                      IsChecked="{Binding ToggleHotkeyCtrl}" />
+                            <CheckBox Margin="0,0,16,0"
+                                      Content="Alt"
+                                      IsChecked="{Binding ToggleHotkeyAlt}" />
+                            <CheckBox Margin="0,0,16,0"
+                                      Content="Shift"
+                                      IsChecked="{Binding ToggleHotkeyShift}" />
+                            <ComboBox Width="110"
+                                      ItemsSource="{Binding SupportedHotkeyKeys}"
+                                      SelectedItem="{Binding SelectedToggleHotkeyKey}" />
+                        </StackPanel>
+                        <TextBlock Margin="0,8,0,0"
+                                   Foreground="#555"
+                                   Text="{Binding ToggleHotkeyPreview}" />
+                        <TextBlock Margin="0,4,0,0"
+                                   Foreground="#555"
+                                   TextWrapping="Wrap"
+                                   Text="{Binding ToggleHotkeyStatus}" />
+                    </StackPanel>
                 </GroupBox>
             </StackPanel>
 

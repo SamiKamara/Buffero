@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using Buffero.Core.Configuration;
 using Buffero.Core.State;
 using IOPath = System.IO.Path;
 
@@ -13,8 +14,8 @@ public sealed class GameOverlayNotifier : IDisposable
 {
     private const double MessageOverlayWidth = 360;
     private const double MessageOverlayHeight = 96;
-    private const double BufferingWidgetWidth = 184;
-    private const double BufferingWidgetHeight = 60;
+    private const double BufferingWidgetWidth = 248;
+    private const double BufferingWidgetHeight = 72;
     private const double HorizontalPadding = 12;
     private const double BottomMargin = 48;
     private const double BufferingWidgetMargin = 18;
@@ -24,6 +25,19 @@ public sealed class GameOverlayNotifier : IDisposable
     private BufferingStatusWindow? _bufferingStatusWindow;
     private ReplayCoordinatorSnapshot? _latestSnapshot;
     private CancellationTokenSource? _savedWidgetCts;
+    private string _toggleBufferHotkeyLabel = HotkeyBinding.ToggleDefault.ToDisplayString();
+
+    public void UpdateToggleHotkeyLabel(string hotkeyLabel)
+    {
+        _toggleBufferHotkeyLabel = string.IsNullOrWhiteSpace(hotkeyLabel)
+            ? HotkeyBinding.ToggleDefault.ToDisplayString()
+            : hotkeyLabel.Trim();
+
+        if (_latestSnapshot is not null)
+        {
+            UpdateBufferingStatus(_latestSnapshot);
+        }
+    }
 
     public void ShowRecordingSaving(CaptureTargetWindow? targetWindow, string outputPath)
     {
@@ -48,7 +62,30 @@ public sealed class GameOverlayNotifier : IDisposable
     {
         _latestSnapshot = snapshot;
         var overlayWindow = EnsureBufferingStatusWindow();
-        if (!snapshot.IsReplayBufferEnabled || !snapshot.IsCapturing)
+        if (!snapshot.IsReplayBufferEnabled)
+        {
+            CancelSavedWidgetOverride();
+            overlayWindow.HideWidget();
+            return;
+        }
+
+        if (snapshot.BufferActivationMode == BufferActivationMode.HotkeyToggle && !snapshot.IsCapturing)
+        {
+            if (snapshot.EligibleTargetWindow is null)
+            {
+                CancelSavedWidgetOverride();
+                overlayWindow.HideWidget();
+                return;
+            }
+
+            CancelSavedWidgetOverride();
+            PositionBufferingWidget(overlayWindow, snapshot.EligibleTargetWindow);
+            overlayWindow.SetState(BufferingWidgetState.Standby, _toggleBufferHotkeyLabel);
+            overlayWindow.ShowWidget();
+            return;
+        }
+
+        if (!snapshot.IsCapturing)
         {
             CancelSavedWidgetOverride();
             overlayWindow.HideWidget();
@@ -58,7 +95,7 @@ public sealed class GameOverlayNotifier : IDisposable
         PositionBufferingWidget(overlayWindow, snapshot.TargetWindow);
         if (_savedWidgetCts is null)
         {
-            overlayWindow.SetState(MapSnapshotToBufferingState(snapshot));
+            overlayWindow.SetState(MapSnapshotToBufferingState(snapshot), _toggleBufferHotkeyLabel);
         }
 
         overlayWindow.ShowWidget();
@@ -166,7 +203,7 @@ public sealed class GameOverlayNotifier : IDisposable
 
         var overlayWindow = EnsureBufferingStatusWindow();
         PositionBufferingWidget(overlayWindow, targetWindow ?? _latestSnapshot?.TargetWindow);
-        overlayWindow.SetState(BufferingWidgetState.Saved);
+        overlayWindow.SetState(BufferingWidgetState.Saved, _toggleBufferHotkeyLabel);
         overlayWindow.ShowWidget();
 
         _savedWidgetCts = new CancellationTokenSource();
@@ -219,7 +256,7 @@ public sealed class GameOverlayNotifier : IDisposable
 
         var overlayWindow = EnsureBufferingStatusWindow();
         PositionBufferingWidget(overlayWindow, targetWindow ?? _latestSnapshot.TargetWindow);
-        overlayWindow.SetState(state);
+        overlayWindow.SetState(state, _toggleBufferHotkeyLabel);
         overlayWindow.ShowWidget();
     }
 
@@ -434,13 +471,14 @@ public sealed class GameOverlayNotifier : IDisposable
     {
         private readonly System.Windows.Shapes.Ellipse _activityDot;
         private readonly ScaleTransform _activityDotScale;
+        private readonly TextBlock _titleText;
         private readonly TextBlock _statusText;
 
         public BufferingStatusWindow()
         {
             Width = BufferingWidgetWidth;
             Height = BufferingWidgetHeight;
-            Content = BuildContent(out _activityDot, out _activityDotScale, out _statusText);
+            Content = BuildContent(out _activityDot, out _activityDotScale, out _titleText, out _statusText);
         }
 
         public void ShowWidget()
@@ -471,15 +509,20 @@ public sealed class GameOverlayNotifier : IDisposable
             base.OnClosed(e);
         }
 
-        public void SetState(BufferingWidgetState state)
+        public void SetState(BufferingWidgetState state, string hotkeyLabel)
         {
-            var (label, dotColor) = state switch
+            var resolvedHotkeyLabel = string.IsNullOrWhiteSpace(hotkeyLabel)
+                ? HotkeyBinding.ToggleDefault.ToDisplayString()
+                : hotkeyLabel;
+            var (title, label, dotColor) = state switch
             {
-                BufferingWidgetState.Saving => ("Saving", System.Windows.Media.Color.FromArgb(255, 255, 196, 79)),
-                BufferingWidgetState.Saved => ("Saved", System.Windows.Media.Color.FromArgb(255, 89, 199, 255)),
-                _ => ("Ready to save", System.Windows.Media.Color.FromArgb(255, 60, 198, 124))
+                BufferingWidgetState.Standby => ("Standby", $"Press {resolvedHotkeyLabel} to buffer", System.Windows.Media.Color.FromArgb(255, 123, 161, 255)),
+                BufferingWidgetState.Saving => ("Buffering", "Saving", System.Windows.Media.Color.FromArgb(255, 255, 196, 79)),
+                BufferingWidgetState.Saved => ("Buffering", "Saved", System.Windows.Media.Color.FromArgb(255, 89, 199, 255)),
+                _ => ("Buffering", "Ready to save", System.Windows.Media.Color.FromArgb(255, 60, 198, 124))
             };
 
+            _titleText.Text = title;
             _statusText.Text = label;
             _activityDot.Fill = new SolidColorBrush(dotColor);
         }
@@ -521,9 +564,10 @@ public sealed class GameOverlayNotifier : IDisposable
         private static FrameworkElement BuildContent(
             out System.Windows.Shapes.Ellipse activityDot,
             out ScaleTransform activityDotScale,
+            out TextBlock titleText,
             out TextBlock statusText)
         {
-            var titleText = new TextBlock
+            titleText = new TextBlock
             {
                 Text = "Buffering",
                 Foreground = System.Windows.Media.Brushes.White,
@@ -536,9 +580,11 @@ public sealed class GameOverlayNotifier : IDisposable
             {
                 Text = "Ready to save",
                 Foreground = System.Windows.Media.Brushes.White,
-                FontSize = 16,
+                FontSize = 14,
                 FontWeight = FontWeights.SemiBold,
-                Margin = new Thickness(0, 2, 0, 0)
+                Margin = new Thickness(0, 3, 0, 0),
+                TextWrapping = TextWrapping.Wrap,
+                MaxWidth = BufferingWidgetWidth - 64
             };
 
             var textStack = new StackPanel
@@ -574,6 +620,7 @@ public sealed class GameOverlayNotifier : IDisposable
 
     private enum BufferingWidgetState
     {
+        Standby,
         ReadyToSave,
         Saving,
         Saved

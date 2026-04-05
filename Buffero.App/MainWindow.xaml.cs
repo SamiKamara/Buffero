@@ -13,7 +13,8 @@ public partial class MainWindow : Window
     private readonly MainViewModel _viewModel;
     private readonly ReplayCoordinator _coordinator;
     private readonly TrayIconHost _trayIcon;
-    private readonly HotkeyManager _hotkeyManager;
+    private readonly HotkeyManager _saveHotkeyManager;
+    private readonly HotkeyManager _toggleBufferHotkeyManager;
     private readonly GameOverlayNotifier _gameOverlayNotifier;
     private readonly ForegroundWindowHook _foregroundWindowHook;
     private readonly FileLogger _logger;
@@ -41,7 +42,8 @@ public partial class MainWindow : Window
         _viewModel = new MainViewModel(settings, settingsStore, paths, logger, _coordinator);
         _trayIcon = new TrayIconHost();
         _trayIcon.SetReplaySavedNotificationsEnabled(settings.NotificationsEnabled);
-        _hotkeyManager = new HotkeyManager();
+        _saveHotkeyManager = new HotkeyManager("Save hotkey", 0xB00F, 0xB010);
+        _toggleBufferHotkeyManager = new HotkeyManager("Buffer toggle hotkey", 0xB011, 0xB012);
         _gameOverlayNotifier = new GameOverlayNotifier();
         _foregroundWindowHook = new ForegroundWindowHook();
 
@@ -57,13 +59,19 @@ public partial class MainWindow : Window
         _trayIcon.OpenClipsRequested += () => Dispatcher.Invoke(() => OpenFolder(_viewModel.SaveDirectory));
         _trayIcon.ExitRequested += async () => await Dispatcher.InvokeAsync(async () => await ExitApplicationAsync());
 
-        _hotkeyManager.SaveReplayPressed += async () =>
+        _saveHotkeyManager.Pressed += async () =>
         {
             _logger.Info("Global hotkey pressed.");
             await Dispatcher.InvokeAsync(async () => await SaveReplayInternalAsync());
         };
 
-        _hotkeyManager.RegistrationChanged += (isRegistered, message) =>
+        _toggleBufferHotkeyManager.Pressed += async () =>
+        {
+            _logger.Info("Buffer toggle hotkey pressed.");
+            await Dispatcher.InvokeAsync(async () => await ToggleBufferingAsync("Stopped from buffer toggle hotkey."));
+        };
+
+        _saveHotkeyManager.RegistrationChanged += (isRegistered, message) =>
         {
             if (isRegistered)
             {
@@ -75,6 +83,20 @@ public partial class MainWindow : Window
             }
 
             Dispatcher.Invoke(() => _viewModel.SetHotkeyStatus(isRegistered, message));
+        };
+
+        _toggleBufferHotkeyManager.RegistrationChanged += (isRegistered, message) =>
+        {
+            if (isRegistered)
+            {
+                _logger.Info(message);
+            }
+            else
+            {
+                _logger.Warn(message);
+            }
+
+            Dispatcher.Invoke(() => _viewModel.SetToggleHotkeyStatus(isRegistered, message));
         };
 
         _coordinator.SnapshotChanged += snapshot =>
@@ -133,8 +155,9 @@ public partial class MainWindow : Window
 
     private void MainWindow_SourceInitialized(object? sender, EventArgs e)
     {
-        _hotkeyManager.Attach(this);
-        _hotkeyManager.UpdateBinding(_viewModel.BuildHotkeyBinding());
+        _saveHotkeyManager.Attach(this);
+        _toggleBufferHotkeyManager.Attach(this);
+        ApplyHotkeyBindings();
     }
 
     private async void StartBuffering_Click(object sender, RoutedEventArgs e)
@@ -145,6 +168,7 @@ public partial class MainWindow : Window
     private async void StopBuffering_Click(object sender, RoutedEventArgs e)
     {
         await _coordinator.StopCaptureAsync("Stopped by user.");
+        await _coordinator.TriggerDetectionAsync();
     }
 
     private async void SaveReplay_Click(object sender, RoutedEventArgs e)
@@ -165,15 +189,17 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task ToggleBufferingAsync()
+    private async Task ToggleBufferingAsync(string stopReason)
     {
         if (_viewModel.IsCapturing)
         {
-            await _coordinator.StopCaptureAsync("Stopped from tray.");
+            await _coordinator.StopCaptureAsync(stopReason);
+            await _coordinator.TriggerDetectionAsync();
             return;
         }
 
         await _coordinator.StartManualCaptureAsync();
+        await _coordinator.TriggerDetectionAsync();
     }
 
     private async Task ToggleReplayBufferEnabledAsync()
@@ -196,7 +222,7 @@ public partial class MainWindow : Window
             await _viewModel.ApplySettingsAsync();
             _startupRegistrationService.Apply(_viewModel.StartWithWindows);
             _trayIcon.SetReplaySavedNotificationsEnabled(_viewModel.NotificationsEnabled);
-            _hotkeyManager.UpdateBinding(_viewModel.BuildHotkeyBinding());
+            ApplyHotkeyBindings();
             await _coordinator.TriggerDetectionAsync();
             ApplyPersistedWindowSizeForCurrentMode();
         }
@@ -268,7 +294,8 @@ public partial class MainWindow : Window
         _foregroundWindowHook.Dispose();
         _gameOverlayNotifier.Dispose();
         _trayIcon.Dispose();
-        _hotkeyManager.Dispose();
+        _saveHotkeyManager.Dispose();
+        _toggleBufferHotkeyManager.Dispose();
         Close();
     }
 
@@ -286,6 +313,16 @@ public partial class MainWindow : Window
     {
         ShowInTaskbar = false;
         Hide();
+    }
+
+    private void ApplyHotkeyBindings()
+    {
+        _saveHotkeyManager.UpdateBinding(_viewModel.BuildHotkeyBinding());
+        _toggleBufferHotkeyManager.UpdateBinding(
+            _viewModel.IsHotkeyBufferActivationMode
+                ? _viewModel.BuildToggleHotkeyBinding()
+                : null);
+        _gameOverlayNotifier.UpdateToggleHotkeyLabel(_viewModel.ToggleHotkeyPreview);
     }
 
     private void ApplyPersistedWindowSizeForCurrentMode()

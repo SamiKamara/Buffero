@@ -5,9 +5,11 @@ namespace Buffero.App.Infrastructure;
 
 public sealed record ReplayCoordinatorSnapshot(
     bool IsReplayBufferEnabled,
+    BufferActivationMode BufferActivationMode,
     ReplayState State,
     string StatusMessage,
     string? ActiveMatch,
+    string? EligibleMatch,
     bool IsCapturing,
     int BufferedSegmentCount,
     string? LastSavedClipPath,
@@ -16,4 +18,5 @@ public sealed record ReplayCoordinatorSnapshot(
     string FfmpegPath,
     string? SessionDirectory,
     string CaptureTargetDescription,
-    CaptureTargetWindow? TargetWindow);
+    CaptureTargetWindow? TargetWindow,
+    CaptureTargetWindow? EligibleTargetWindow);

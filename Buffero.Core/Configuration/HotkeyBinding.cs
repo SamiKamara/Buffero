@@ -15,6 +15,12 @@ public sealed class HotkeyBinding
         Key = "P"
     };
 
+    public static HotkeyBinding ToggleDefault => new()
+    {
+        Alt = true,
+        Key = "L"
+    };
+
     public bool Ctrl { get; set; }
 
     public bool Alt { get; set; } = true;
@@ -23,9 +29,15 @@ public sealed class HotkeyBinding
 
     public string Key { get; set; } = "P";
 
-    public void Normalize()
+    public void Normalize(string fallbackKey = "P")
     {
-        Key = SupportedKeys.Contains(Key, StringComparer.OrdinalIgnoreCase) ? Key.ToUpperInvariant() : "P";
+        var normalizedFallbackKey = SupportedKeys.Contains(fallbackKey, StringComparer.OrdinalIgnoreCase)
+            ? fallbackKey.ToUpperInvariant()
+            : "P";
+        var currentKey = Key;
+        Key = SupportedKeys.Contains(currentKey ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+            ? currentKey!.ToUpperInvariant()
+            : normalizedFallbackKey;
     }
 
     public string ToDisplayString()
@@ -47,7 +59,7 @@ public sealed class HotkeyBinding
             parts.Add("Shift");
         }
 
-        parts.Add(Key.ToUpperInvariant());
+        parts.Add((Key ?? "P").ToUpperInvariant());
         return string.Join('+', parts);
     }
 

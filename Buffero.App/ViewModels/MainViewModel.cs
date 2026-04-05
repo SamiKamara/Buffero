@@ -3,6 +3,7 @@ using System.Windows;
 using Buffero.App.Infrastructure;
 using Buffero.Core.Capture;
 using Buffero.Core.Configuration;
+using Buffero.Core.State;
 
 namespace Buffero.App.ViewModels;
 
@@ -39,16 +40,23 @@ public sealed class MainViewModel : ObservableObject
     private bool _replayBufferEnabled = true;
     private bool _startWithWindows;
     private bool _autoStartEnabled = true;
+    private BufferActivationMode _bufferActivationMode = BufferActivationMode.Automatic;
     private bool _requireForegroundWindow = true;
     private string _allowedExecutablesText = string.Empty;
     private bool _hotkeyCtrl = true;
     private bool _hotkeyAlt;
     private bool _hotkeyShift = true;
     private string _selectedHotkeyKey = "F8";
+    private bool _toggleHotkeyCtrl;
+    private bool _toggleHotkeyAlt = true;
+    private bool _toggleHotkeyShift;
+    private string _selectedToggleHotkeyKey = "L";
     private string _diagnosticsText = string.Empty;
     private bool _isCapturing;
     private string _hotkeyStatus = "Save hotkey is not registered.";
     private bool _hotkeyAvailable;
+    private string _toggleHotkeyStatus = "Buffer toggle hotkey is not registered.";
+    private bool _toggleHotkeyAvailable;
     private string? _qualityEstimatePreferredProcessName;
 
     public MainViewModel(
@@ -163,6 +171,12 @@ public sealed class MainViewModel : ObservableObject
     [
         new(CaptureMode.Window, "Window"),
         new(CaptureMode.Display, "Display")
+    ];
+
+    public BufferActivationModeOption[] SupportedBufferActivationModes { get; } =
+    [
+        new(BufferActivationMode.Automatic, "Automatic when an eligible game is found"),
+        new(BufferActivationMode.HotkeyToggle, "Toggle buffering with a hotkey")
     ];
 
     public string StateName
@@ -328,6 +342,23 @@ public sealed class MainViewModel : ObservableObject
         set => SetProperty(ref _autoStartEnabled, value);
     }
 
+    public BufferActivationMode BufferActivationMode
+    {
+        get => _bufferActivationMode;
+        set
+        {
+            if (SetProperty(ref _bufferActivationMode, value))
+            {
+                RaisePropertyChanged(nameof(IsAutomaticBufferActivationMode));
+                RaisePropertyChanged(nameof(IsHotkeyBufferActivationMode));
+            }
+        }
+    }
+
+    public bool IsAutomaticBufferActivationMode => BufferActivationMode == BufferActivationMode.Automatic;
+
+    public bool IsHotkeyBufferActivationMode => BufferActivationMode == BufferActivationMode.HotkeyToggle;
+
     public bool StartWithWindows
     {
         get => _startWithWindows;
@@ -408,6 +439,56 @@ public sealed class MainViewModel : ObservableObject
 
     public string HotkeyPreview => BuildHotkeyBinding().ToDisplayString();
 
+    public bool ToggleHotkeyCtrl
+    {
+        get => _toggleHotkeyCtrl;
+        set
+        {
+            if (SetProperty(ref _toggleHotkeyCtrl, value))
+            {
+                RaisePropertyChanged(nameof(ToggleHotkeyPreview));
+            }
+        }
+    }
+
+    public bool ToggleHotkeyAlt
+    {
+        get => _toggleHotkeyAlt;
+        set
+        {
+            if (SetProperty(ref _toggleHotkeyAlt, value))
+            {
+                RaisePropertyChanged(nameof(ToggleHotkeyPreview));
+            }
+        }
+    }
+
+    public bool ToggleHotkeyShift
+    {
+        get => _toggleHotkeyShift;
+        set
+        {
+            if (SetProperty(ref _toggleHotkeyShift, value))
+            {
+                RaisePropertyChanged(nameof(ToggleHotkeyPreview));
+            }
+        }
+    }
+
+    public string SelectedToggleHotkeyKey
+    {
+        get => _selectedToggleHotkeyKey;
+        set
+        {
+            if (SetProperty(ref _selectedToggleHotkeyKey, value))
+            {
+                RaisePropertyChanged(nameof(ToggleHotkeyPreview));
+            }
+        }
+    }
+
+    public string ToggleHotkeyPreview => BuildToggleHotkeyBinding().ToDisplayString();
+
     public string DiagnosticsText
     {
         get => _diagnosticsText;
@@ -430,6 +511,18 @@ public sealed class MainViewModel : ObservableObject
     {
         get => _hotkeyAvailable;
         private set => SetProperty(ref _hotkeyAvailable, value);
+    }
+
+    public string ToggleHotkeyStatus
+    {
+        get => _toggleHotkeyStatus;
+        private set => SetProperty(ref _toggleHotkeyStatus, value);
+    }
+
+    public bool ToggleHotkeyAvailable
+    {
+        get => _toggleHotkeyAvailable;
+        private set => SetProperty(ref _toggleHotkeyAvailable, value);
     }
 
     public async Task ApplySettingsAsync()
@@ -488,6 +581,20 @@ public sealed class MainViewModel : ObservableObject
         return binding;
     }
 
+    public HotkeyBinding BuildToggleHotkeyBinding()
+    {
+        var binding = new HotkeyBinding
+        {
+            Ctrl = ToggleHotkeyCtrl,
+            Alt = ToggleHotkeyAlt,
+            Shift = ToggleHotkeyShift,
+            Key = SelectedToggleHotkeyKey
+        };
+
+        binding.Normalize(HotkeyBinding.ToggleDefault.Key);
+        return binding;
+    }
+
     public (double Width, double Height) GetWindowSize(UiMode uiMode)
     {
         return uiMode switch
@@ -506,7 +613,19 @@ public sealed class MainViewModel : ObservableObject
     {
         HotkeyAvailable = isAvailable;
         HotkeyStatus = message;
-        if (!IsCapturing)
+        if (!IsCapturing && BufferActivationMode != BufferActivationMode.HotkeyToggle)
+        {
+            StatusDetails = message;
+        }
+
+        UpdateDiagnostics(null);
+    }
+
+    public void SetToggleHotkeyStatus(bool isAvailable, string message)
+    {
+        ToggleHotkeyAvailable = isAvailable;
+        ToggleHotkeyStatus = message;
+        if (!IsCapturing && BufferActivationMode == BufferActivationMode.HotkeyToggle)
         {
             StatusDetails = message;
         }
@@ -526,6 +645,7 @@ public sealed class MainViewModel : ObservableObject
             ReplayBufferEnabled = ReplayBufferEnabled,
             StartWithWindows = StartWithWindows,
             AutoStartEnabled = AutoStartEnabled,
+            BufferActivationMode = BufferActivationMode,
             RequireForegroundWindow = RequireForegroundWindow,
             SaveDirectory = SaveDirectory,
             BufferSeconds = BufferSeconds,
@@ -540,6 +660,7 @@ public sealed class MainViewModel : ObservableObject
             OutputResolution = OutputResolution,
             NotificationsEnabled = NotificationsEnabled,
             SaveReplayHotkey = BuildHotkeyBinding(),
+            ToggleBufferHotkey = BuildToggleHotkeyBinding(),
             FfmpegPath = FfmpegPath,
             ClipFilePattern = ClipFilePattern,
             AllowedExecutables = AllowedExecutablesText
@@ -574,13 +695,19 @@ public sealed class MainViewModel : ObservableObject
         ReplayBufferEnabled = settings.ReplayBufferEnabled;
         StartWithWindows = settings.StartWithWindows;
         AutoStartEnabled = settings.AutoStartEnabled;
+        BufferActivationMode = settings.BufferActivationMode;
         RequireForegroundWindow = settings.RequireForegroundWindow;
         AllowedExecutablesText = string.Join(Environment.NewLine, settings.AllowedExecutables);
         HotkeyCtrl = settings.SaveReplayHotkey.Ctrl;
         HotkeyAlt = settings.SaveReplayHotkey.Alt;
         HotkeyShift = settings.SaveReplayHotkey.Shift;
         SelectedHotkeyKey = settings.SaveReplayHotkey.Key;
+        ToggleHotkeyCtrl = settings.ToggleBufferHotkey.Ctrl;
+        ToggleHotkeyAlt = settings.ToggleBufferHotkey.Alt;
+        ToggleHotkeyShift = settings.ToggleBufferHotkey.Shift;
+        SelectedToggleHotkeyKey = settings.ToggleBufferHotkey.Key;
         RaisePropertyChanged(nameof(HotkeyPreview));
+        RaisePropertyChanged(nameof(ToggleHotkeyPreview));
         UpdateDiagnostics(null);
     }
 
@@ -595,15 +722,13 @@ public sealed class MainViewModel : ObservableObject
     private void ApplySnapshot(ReplayCoordinatorSnapshot snapshot)
     {
         var previousEstimateResolution = GetQualityEstimateResolution();
-        _qualityEstimatePreferredProcessName = snapshot.ActiveMatch;
+        _qualityEstimatePreferredProcessName = snapshot.ActiveMatch ?? snapshot.EligibleMatch;
         StateName = snapshot.IsReplayBufferEnabled ? snapshot.State.ToString() : "Disabled";
         StatusMessage = snapshot.IsReplayBufferEnabled
-            ? snapshot.StatusMessage
+            ? BuildStatusMessage(snapshot)
             : "Replay buffer disabled.";
         StatusDetails = snapshot.IsReplayBufferEnabled
-            ? snapshot.IsCapturing
-                ? $"Buffered segments: {snapshot.BufferedSegmentCount}. Backend: {FormatCaptureBackend(snapshot.ActiveCaptureBackend)}. Target: {snapshot.CaptureTargetDescription}."
-                : HotkeyStatus
+            ? BuildStatusDetails(snapshot)
             : "Enable the replay buffer to resume auto-capture and replay saves.";
         IsCapturing = snapshot.IsCapturing;
         if (previousEstimateResolution != GetQualityEstimateResolution())
@@ -631,12 +756,14 @@ public sealed class MainViewModel : ObservableObject
             $"Last Saved Clip: {snapshot?.LastSavedClipPath ?? "(none)"}",
             $"Capture Target: {snapshot?.CaptureTargetDescription ?? "(none)"}",
             $"Replay Buffer Enabled: {ReplayBufferEnabled}",
+            $"Buffer Activation Mode: {FormatBufferActivationMode(BufferActivationMode)}",
             $"Capture Mode: {FormatCaptureMode(CaptureMode)}",
             $"Capture Resolution: {FormatResolutionMode(OutputResolution)}",
             $"Replay Save Overlays + Notifications: {NotificationsEnabled}",
             $"Save Drive Free Space: {saveDriveFreeSpace}",
             $"Temp Drive Free Space: {tempDriveFreeSpace}",
-            $"Hotkey: {HotkeyStatus}",
+            $"Save Replay Hotkey: {HotkeyStatus}",
+            $"Buffer Toggle Hotkey: {ToggleHotkeyStatus}",
             $"Start With Windows: {StartWithWindows}",
             "Audio: currently disabled; video export only."
         ]);
@@ -694,6 +821,15 @@ public sealed class MainViewModel : ObservableObject
         {
             CaptureMode.Display => "Display",
             _ => "Window"
+        };
+    }
+
+    private static string FormatBufferActivationMode(BufferActivationMode bufferActivationMode)
+    {
+        return bufferActivationMode switch
+        {
+            BufferActivationMode.HotkeyToggle => "Hotkey toggle",
+            _ => "Automatic"
         };
     }
 
@@ -834,6 +970,7 @@ public sealed class MainViewModel : ObservableObject
             ReplayBufferEnabled = settings.ReplayBufferEnabled,
             StartWithWindows = settings.StartWithWindows,
             AutoStartEnabled = settings.AutoStartEnabled,
+            BufferActivationMode = settings.BufferActivationMode,
             RequireForegroundWindow = settings.RequireForegroundWindow,
             SaveDirectory = settings.SaveDirectory,
             BufferSeconds = settings.BufferSeconds,
@@ -851,6 +988,13 @@ public sealed class MainViewModel : ObservableObject
                 Shift = settings.SaveReplayHotkey.Shift,
                 Key = settings.SaveReplayHotkey.Key
             },
+            ToggleBufferHotkey = new HotkeyBinding
+            {
+                Ctrl = settings.ToggleBufferHotkey.Ctrl,
+                Alt = settings.ToggleBufferHotkey.Alt,
+                Shift = settings.ToggleBufferHotkey.Shift,
+                Key = settings.ToggleBufferHotkey.Key
+            },
             FfmpegPath = settings.FfmpegPath,
             IncludeSystemAudio = settings.IncludeSystemAudio,
             NotificationsEnabled = settings.NotificationsEnabled,
@@ -860,6 +1004,36 @@ public sealed class MainViewModel : ObservableObject
             AllowedExecutables = [.. settings.AllowedExecutables]
         };
     }
+
+    private string BuildStatusMessage(ReplayCoordinatorSnapshot snapshot)
+    {
+        if (snapshot.BufferActivationMode == BufferActivationMode.HotkeyToggle
+            && !snapshot.IsCapturing
+            && snapshot.State is ReplayState.Idle or ReplayState.Armed)
+        {
+            return !string.IsNullOrWhiteSpace(snapshot.EligibleMatch)
+                ? $"Standby for {snapshot.EligibleMatch}. Press {_appliedSettings.ToggleBufferHotkey.ToDisplayString()} to buffer."
+                : "Standby. Waiting for a configured game.";
+        }
+
+        return snapshot.StatusMessage;
+    }
+
+    private string BuildStatusDetails(ReplayCoordinatorSnapshot snapshot)
+    {
+        if (snapshot.BufferActivationMode == BufferActivationMode.HotkeyToggle
+            && !snapshot.IsCapturing
+            && snapshot.State is ReplayState.Idle or ReplayState.Armed)
+        {
+            return !string.IsNullOrWhiteSpace(snapshot.EligibleMatch)
+                ? ToggleHotkeyStatus
+                : "Bring a configured game into focus, then use the toggle hotkey to start buffering.";
+        }
+
+        return snapshot.IsCapturing
+            ? $"Buffered segments: {snapshot.BufferedSegmentCount}. Backend: {FormatCaptureBackend(snapshot.ActiveCaptureBackend)}. Target: {snapshot.CaptureTargetDescription}."
+            : HotkeyStatus;
+    }
 }
 
 public sealed record ResolutionModeOption(OutputResolutionMode Value, string Label);
@@ -867,3 +1041,5 @@ public sealed record ResolutionModeOption(OutputResolutionMode Value, string Lab
 public sealed record CaptureBackendOption(CaptureBackend Value, string Label);
 
 public sealed record CaptureModeOption(CaptureMode Value, string Label);
+
+public sealed record BufferActivationModeOption(BufferActivationMode Value, string Label);

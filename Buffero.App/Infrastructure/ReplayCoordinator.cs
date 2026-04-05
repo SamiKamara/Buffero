@@ -32,8 +32,10 @@ public sealed class ReplayCoordinator
     private IReplayCaptureSession? _captureSession;
     private string? _currentSessionDirectory;
     private string? _activeMatch;
+    private string? _eligibleMatch;
     private string? _lastSavedClipPath;
     private CaptureTargetWindow? _captureTargetWindow;
+    private CaptureTargetWindow? _eligibleTargetWindow;
     private string _captureTargetDescription = "Desktop fallback";
     private CaptureBackend _activeCaptureBackend = CaptureBackend.Native;
     private int _captureGeneration;
@@ -87,7 +89,10 @@ public sealed class ReplayCoordinator
         settings.Normalize(_locator.FindBestPath(), estimateResolution.Width, estimateResolution.Height);
 
         var restartManual = settings.ReplayBufferEnabled && _manualCapture;
-        var restartAuto = settings.ReplayBufferEnabled && _autoCapture && !string.IsNullOrWhiteSpace(_activeMatch);
+        var restartAuto = settings.ReplayBufferEnabled
+            && settings.BufferActivationMode == BufferActivationMode.Automatic
+            && _autoCapture
+            && !string.IsNullOrWhiteSpace(_activeMatch);
         var restartMatch = _activeMatch;
 
         await StopCaptureAsync("Applying updated settings.");
@@ -99,6 +104,8 @@ public sealed class ReplayCoordinator
 
         if (!_settings.ReplayBufferEnabled)
         {
+            _eligibleMatch = null;
+            _eligibleTargetWindow = null;
             _stateMachine.SetEligibleTarget(null);
             PublishSnapshot();
             return;
@@ -129,7 +136,7 @@ public sealed class ReplayCoordinator
 
         _manualCapture = true;
         _autoCapture = false;
-        await StartCaptureInternalAsync(_activeMatch, manualCapture: true);
+        await StartCaptureInternalAsync(ResolveManualCaptureMatch(), manualCapture: true);
     }
 
     public async Task StopCaptureAsync(string reason)
@@ -485,9 +492,11 @@ public sealed class ReplayCoordinator
 
         SnapshotChanged?.Invoke(new ReplayCoordinatorSnapshot(
             _settings.ReplayBufferEnabled,
+            _settings.BufferActivationMode,
             _stateMachine.CurrentState,
             _stateMachine.StatusMessage,
             _activeMatch,
+            _eligibleMatch,
             _captureSession?.IsRunning == true,
             segmentCount,
             _lastSavedClipPath,
@@ -496,7 +505,8 @@ public sealed class ReplayCoordinator
             _settings.FfmpegPath,
             _currentSessionDirectory,
             _captureTargetDescription,
-            _captureTargetWindow));
+            _captureTargetWindow,
+            _eligibleTargetWindow));
     }
 
     private void OnCaptureExited(int exitCode)
@@ -870,41 +880,58 @@ public sealed class ReplayCoordinator
 
         try
         {
-            if (_settings.ReplayBufferEnabled && _settings.AutoStartEnabled)
+            if (_settings.ReplayBufferEnabled)
             {
-                var runningProcessNames = ForegroundProcessProbe.GetRunningProcessNames();
-                var foregroundProcessName = _settings.RequireForegroundWindow
-                    ? ForegroundProcessProbe.GetForegroundProcessName()
-                    : null;
-                var result = _gameMatchEvaluator.Evaluate(runningProcessNames, foregroundProcessName, _settings);
-                var eligibleMatch = ResolveEligibleAutoCaptureMatch(result, _settings);
-                _stateMachine.SetEligibleTarget(eligibleMatch);
-                var stableEligibleMatch = _autoStartDebouncer
-                    .Observe(eligibleMatch, DateTimeOffset.UtcNow)
-                    .StableExecutable;
-
-                if (!_manualCapture)
+                string? eligibleMatch = null;
+                if (_settings.AutoStartEnabled || _settings.BufferActivationMode == BufferActivationMode.HotkeyToggle)
                 {
-                    if (!string.IsNullOrWhiteSpace(stableEligibleMatch) && _captureSession?.IsRunning != true)
+                    var runningProcessNames = ForegroundProcessProbe.GetRunningProcessNames();
+                    var foregroundProcessName = _settings.RequireForegroundWindow
+                        ? ForegroundProcessProbe.GetForegroundProcessName()
+                        : null;
+                    var result = _gameMatchEvaluator.Evaluate(runningProcessNames, foregroundProcessName, _settings);
+                    eligibleMatch = ResolveEligibleAutoCaptureMatch(result, _settings);
+                }
+
+                _eligibleMatch = eligibleMatch;
+                _eligibleTargetWindow = ResolveCaptureTargetWindow(_eligibleMatch);
+                _stateMachine.SetEligibleTarget(_eligibleMatch);
+
+                if (_settings.BufferActivationMode == BufferActivationMode.Automatic && _settings.AutoStartEnabled)
+                {
+                    var stableEligibleMatch = _autoStartDebouncer
+                        .Observe(eligibleMatch, DateTimeOffset.UtcNow)
+                        .StableExecutable;
+
+                    if (!_manualCapture)
                     {
-                        await StartCaptureInternalAsync(stableEligibleMatch, manualCapture: false);
+                        if (!string.IsNullOrWhiteSpace(stableEligibleMatch) && _captureSession?.IsRunning != true)
+                        {
+                            await StartCaptureInternalAsync(stableEligibleMatch, manualCapture: false);
+                        }
+                        else if (!string.IsNullOrWhiteSpace(stableEligibleMatch)
+                            && _autoCapture
+                            && _captureSession?.IsRunning == true
+                            && !string.Equals(_activeMatch, stableEligibleMatch, StringComparison.OrdinalIgnoreCase))
+                        {
+                            await StopCaptureAsync($"Auto-switch because {stableEligibleMatch} became the active eligible game.");
+                            await StartCaptureInternalAsync(stableEligibleMatch, manualCapture: false);
+                        }
+                        else if (string.IsNullOrWhiteSpace(stableEligibleMatch) && _autoCapture && _captureSession?.IsRunning == true)
+                        {
+                            await StopCaptureAsync("Auto-stop because no configured game window stayed eligible.");
+                        }
                     }
-                    else if (!string.IsNullOrWhiteSpace(stableEligibleMatch)
-                        && _autoCapture
-                        && _captureSession?.IsRunning == true
-                        && !string.Equals(_activeMatch, stableEligibleMatch, StringComparison.OrdinalIgnoreCase))
-                    {
-                        await StopCaptureAsync($"Auto-switch because {stableEligibleMatch} became the active eligible game.");
-                        await StartCaptureInternalAsync(stableEligibleMatch, manualCapture: false);
-                    }
-                    else if (string.IsNullOrWhiteSpace(stableEligibleMatch) && _autoCapture && _captureSession?.IsRunning == true)
-                    {
-                        await StopCaptureAsync("Auto-stop because no configured game window stayed eligible.");
-                    }
+                }
+                else
+                {
+                    _autoStartDebouncer.Reset();
                 }
             }
             else
             {
+                _eligibleMatch = null;
+                _eligibleTargetWindow = null;
                 _autoStartDebouncer.Reset();
                 _stateMachine.SetEligibleTarget(null);
             }
@@ -1007,5 +1034,25 @@ public sealed class ReplayCoordinator
         }
 
         return targetWindow?.Description ?? "Desktop fallback";
+    }
+
+    private string? ResolveManualCaptureMatch()
+    {
+        if (!string.IsNullOrWhiteSpace(_eligibleMatch))
+        {
+            return _eligibleMatch;
+        }
+
+        if (_settings.BufferActivationMode != BufferActivationMode.HotkeyToggle)
+        {
+            return _activeMatch;
+        }
+
+        var runningProcessNames = ForegroundProcessProbe.GetRunningProcessNames();
+        var foregroundProcessName = _settings.RequireForegroundWindow
+            ? ForegroundProcessProbe.GetForegroundProcessName()
+            : null;
+        var result = _gameMatchEvaluator.Evaluate(runningProcessNames, foregroundProcessName, _settings);
+        return ResolveEligibleAutoCaptureMatch(result, _settings);
     }
 }

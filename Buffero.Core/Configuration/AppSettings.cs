@@ -34,6 +34,8 @@ public sealed class AppSettings
 
     public bool AutoStartEnabled { get; set; } = true;
 
+    public BufferActivationMode BufferActivationMode { get; set; } = BufferActivationMode.Automatic;
+
     public bool RequireForegroundWindow { get; set; } = true;
 
     public string SaveDirectory { get; set; } = string.Empty;
@@ -53,6 +55,8 @@ public sealed class AppSettings
     public int MaxTempStorageGb { get; set; } = 4;
 
     public HotkeyBinding SaveReplayHotkey { get; set; } = HotkeyBinding.Default;
+
+    public HotkeyBinding ToggleBufferHotkey { get; set; } = HotkeyBinding.ToggleDefault;
 
     public string FfmpegPath { get; set; } = string.Empty;
 
@@ -129,6 +133,9 @@ public sealed class AppSettings
         CaptureMode = Enum.IsDefined(CaptureMode)
             ? CaptureMode
             : CaptureMode.Window;
+        BufferActivationMode = Enum.IsDefined(BufferActivationMode)
+            ? BufferActivationMode
+            : BufferActivationMode.Automatic;
         OutputResolution = Enum.IsDefined(OutputResolution)
             ? OutputResolution
             : OutputResolutionMode.Native;
@@ -162,7 +169,9 @@ public sealed class AppSettings
             ? fallbackFfmpegPath ?? string.Empty
             : FfmpegPath.Trim();
         SaveReplayHotkey ??= HotkeyBinding.Default;
-        SaveReplayHotkey.Normalize();
+        SaveReplayHotkey.Normalize(HotkeyBinding.Default.Key);
+        ToggleBufferHotkey ??= HotkeyBinding.ToggleDefault;
+        ToggleBufferHotkey.Normalize(HotkeyBinding.ToggleDefault.Key);
         AllowedExecutables ??= [];
         AllowedExecutables = AllowedExecutables
             .Select(HotkeyBinding.NormalizeExecutableToken)
