@@ -45,6 +45,7 @@ public partial class MainWindow : Window
         _saveHotkeyManager = new HotkeyManager("Save hotkey", 0xB00F, 0xB010);
         _toggleBufferHotkeyManager = new HotkeyManager("Buffer toggle hotkey", 0xB011, 0xB012);
         _gameOverlayNotifier = new GameOverlayNotifier();
+        _gameOverlayNotifier.UpdateBufferingWidgetOpacity(settings.BufferingWidgetOpacity);
         _foregroundWindowHook = new ForegroundWindowHook();
 
         DataContext = _viewModel;
@@ -222,6 +223,7 @@ public partial class MainWindow : Window
             await _viewModel.ApplySettingsAsync();
             _startupRegistrationService.Apply(_viewModel.StartWithWindows);
             _trayIcon.SetReplaySavedNotificationsEnabled(_viewModel.NotificationsEnabled);
+            _gameOverlayNotifier.UpdateBufferingWidgetOpacity(_viewModel.BufferingWidgetOpacity);
             ApplyHotkeyBindings();
             await _coordinator.TriggerDetectionAsync();
             ApplyPersistedWindowSizeForCurrentMode();

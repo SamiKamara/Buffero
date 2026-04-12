@@ -26,6 +26,7 @@ public sealed class SettingsStoreTests
         Assert.Equal(BufferActivationMode.Automatic, settings.BufferActivationMode);
         Assert.Equal(QualityInputMode.Bitrate, settings.QualityInputMode);
         Assert.Equal(6, settings.QualityBitrateMbps);
+        Assert.Equal(AppSettings.BufferingWidgetDefaultOpacity, settings.BufferingWidgetOpacity);
         Assert.True(settings.ToggleBufferHotkey.Alt);
         Assert.Equal("L", settings.ToggleBufferHotkey.Key);
     }
@@ -47,6 +48,7 @@ public sealed class SettingsStoreTests
         settings.CaptureMode = CaptureMode.Display;
         settings.OutputResolution = OutputResolutionMode.Max720p;
         settings.NotificationsEnabled = false;
+        settings.BufferingWidgetOpacity = 0.35;
         settings.BufferActivationMode = BufferActivationMode.HotkeyToggle;
         settings.ToggleBufferHotkey = new HotkeyBinding
         {
@@ -70,6 +72,7 @@ public sealed class SettingsStoreTests
         Assert.Equal(CaptureMode.Display, loaded.CaptureMode);
         Assert.Equal(OutputResolutionMode.Max720p, loaded.OutputResolution);
         Assert.False(loaded.NotificationsEnabled);
+        Assert.Equal(0.35, loaded.BufferingWidgetOpacity);
         Assert.Equal(BufferActivationMode.HotkeyToggle, loaded.BufferActivationMode);
         Assert.True(loaded.ToggleBufferHotkey.Ctrl);
         Assert.False(loaded.ToggleBufferHotkey.Alt);
@@ -86,10 +89,25 @@ public sealed class SettingsStoreTests
         Assert.Contains("\"captureMode\": \"Display\"", File.ReadAllText(settingsPath));
         Assert.Contains("\"outputResolution\": \"Max720p\"", File.ReadAllText(settingsPath));
         Assert.Contains("\"notificationsEnabled\": false", File.ReadAllText(settingsPath));
+        Assert.Contains("\"bufferingWidgetOpacity\": 0.35", File.ReadAllText(settingsPath));
         Assert.Contains("\"bufferActivationMode\": \"HotkeyToggle\"", File.ReadAllText(settingsPath));
         Assert.Contains("\"toggleBufferHotkey\": {", File.ReadAllText(settingsPath));
         Assert.Contains("\"qualityInputMode\": \"Bitrate\"", File.ReadAllText(settingsPath));
         Assert.Contains("\"qualityBitrateMbps\": 16", File.ReadAllText(settingsPath));
+    }
+
+    [Theory]
+    [InlineData(-1, AppSettings.BufferingWidgetMinOpacity)]
+    [InlineData(5, AppSettings.BufferingWidgetMaxOpacity)]
+    [InlineData(0.376, 0.38)]
+    public void Normalize_ClampsBufferingWidgetOpacity(double input, double expected)
+    {
+        var settings = AppSettings.CreateDefault("ffmpeg.exe");
+        settings.BufferingWidgetOpacity = input;
+
+        settings.Normalize();
+
+        Assert.Equal(expected, settings.BufferingWidgetOpacity);
     }
 
     [Fact]

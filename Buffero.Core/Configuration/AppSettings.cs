@@ -15,6 +15,9 @@ public sealed class AppSettings
     public const double AdvancedModeMinWindowHeight = 720;
     public const int MinBufferSeconds = 15;
     public const int MaxBufferSeconds = 1200;
+    public const double BufferingWidgetDefaultOpacity = 0.75;
+    public const double BufferingWidgetMinOpacity = 0.1;
+    public const double BufferingWidgetMaxOpacity = 1.0;
     private const double MaxWindowWidth = 3200;
     private const double MaxWindowHeight = 2400;
 
@@ -63,6 +66,8 @@ public sealed class AppSettings
     public bool IncludeSystemAudio { get; set; }
 
     public bool NotificationsEnabled { get; set; } = true;
+
+    public double BufferingWidgetOpacity { get; set; } = BufferingWidgetDefaultOpacity;
 
     public CaptureBackend CaptureBackend { get; set; } = CaptureBackend.Native;
 
@@ -127,6 +132,7 @@ public sealed class AppSettings
         QualityCrf = CaptureQualityEstimator.ClampCrf(QualityCrf);
         QualityBitrateMbps = CaptureQualityEstimator.ClampBitrateMbps(QualityBitrateMbps);
         MaxTempStorageGb = Math.Clamp(MaxTempStorageGb, 1, 32);
+        BufferingWidgetOpacity = ClampOpacity(BufferingWidgetOpacity, BufferingWidgetDefaultOpacity);
         CaptureBackend = Enum.IsDefined(CaptureBackend)
             ? CaptureBackend
             : CaptureBackend.Native;
@@ -206,5 +212,15 @@ public sealed class AppSettings
         }
 
         return Math.Clamp(Math.Round(value), min, max);
+    }
+
+    private static double ClampOpacity(double value, double fallback)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value))
+        {
+            return fallback;
+        }
+
+        return Math.Round(Math.Clamp(value, BufferingWidgetMinOpacity, BufferingWidgetMaxOpacity), 2);
     }
 }

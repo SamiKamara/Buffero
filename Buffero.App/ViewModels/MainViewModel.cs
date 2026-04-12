@@ -37,6 +37,7 @@ public sealed class MainViewModel : ObservableObject
     private OutputResolutionMode _outputResolution = OutputResolutionMode.Native;
     private string _clipFilePattern = "Buffero-{timestamp}-{game}";
     private bool _notificationsEnabled = true;
+    private double _bufferingWidgetOpacity = AppSettings.BufferingWidgetDefaultOpacity;
     private bool _replayBufferEnabled = true;
     private bool _startWithWindows;
     private bool _autoStartEnabled = true;
@@ -335,6 +336,20 @@ public sealed class MainViewModel : ObservableObject
         get => _notificationsEnabled;
         set => SetProperty(ref _notificationsEnabled, value);
     }
+
+    public double BufferingWidgetOpacity
+    {
+        get => _bufferingWidgetOpacity;
+        set
+        {
+            if (SetProperty(ref _bufferingWidgetOpacity, value))
+            {
+                RaisePropertyChanged(nameof(BufferingWidgetOpacityDisplay));
+            }
+        }
+    }
+
+    public string BufferingWidgetOpacityDisplay => $"{Math.Round(BufferingWidgetOpacity * 100):0}%";
 
     public bool AutoStartEnabled
     {
@@ -659,6 +674,7 @@ public sealed class MainViewModel : ObservableObject
             CaptureMode = CaptureMode,
             OutputResolution = OutputResolution,
             NotificationsEnabled = NotificationsEnabled,
+            BufferingWidgetOpacity = BufferingWidgetOpacity,
             SaveReplayHotkey = BuildHotkeyBinding(),
             ToggleBufferHotkey = BuildToggleHotkeyBinding(),
             FfmpegPath = FfmpegPath,
@@ -692,6 +708,7 @@ public sealed class MainViewModel : ObservableObject
         ApplyQualitySettings(settings);
         ClipFilePattern = settings.ClipFilePattern;
         NotificationsEnabled = settings.NotificationsEnabled;
+        BufferingWidgetOpacity = settings.BufferingWidgetOpacity;
         ReplayBufferEnabled = settings.ReplayBufferEnabled;
         StartWithWindows = settings.StartWithWindows;
         AutoStartEnabled = settings.AutoStartEnabled;
@@ -760,6 +777,7 @@ public sealed class MainViewModel : ObservableObject
             $"Capture Mode: {FormatCaptureMode(CaptureMode)}",
             $"Capture Resolution: {FormatResolutionMode(OutputResolution)}",
             $"Replay Save Overlays + Notifications: {NotificationsEnabled}",
+            $"Buffering Widget Opacity: {BufferingWidgetOpacityDisplay}",
             $"Save Drive Free Space: {saveDriveFreeSpace}",
             $"Temp Drive Free Space: {tempDriveFreeSpace}",
             $"Save Replay Hotkey: {HotkeyStatus}",
@@ -998,6 +1016,7 @@ public sealed class MainViewModel : ObservableObject
             FfmpegPath = settings.FfmpegPath,
             IncludeSystemAudio = settings.IncludeSystemAudio,
             NotificationsEnabled = settings.NotificationsEnabled,
+            BufferingWidgetOpacity = settings.BufferingWidgetOpacity,
             CaptureMode = settings.CaptureMode,
             OutputResolution = settings.OutputResolution,
             ClipFilePattern = settings.ClipFilePattern,

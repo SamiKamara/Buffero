@@ -308,6 +308,7 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
 
                         <CheckBox Content="Enable replay buffer"
@@ -329,7 +330,27 @@
                                   Margin="0,8,0,0"
                                   Content="Show replay save overlays and tray notifications"
                                   IsChecked="{Binding NotificationsEnabled}" />
-                        <StackPanel Grid.Row="5" Margin="0,12,0,0">
+                        <StackPanel Grid.Row="5"
+                                    Margin="0,12,0,0"
+                                    Style="{StaticResource AdvancedOnlyStyle}">
+                            <DockPanel>
+                                <TextBlock FontWeight="SemiBold"
+                                           Text="Buffering Widget Opacity" />
+                                <TextBlock DockPanel.Dock="Right"
+                                           Foreground="#666"
+                                           Text="{Binding BufferingWidgetOpacityDisplay}" />
+                            </DockPanel>
+                            <TextBlock Margin="0,4,0,0"
+                                       Foreground="#666"
+                                       Text="Controls the bottom-right in-game buffering widget opacity." />
+                            <Slider Margin="0,8,0,0"
+                                    Minimum="0.1"
+                                    Maximum="1"
+                                    TickFrequency="0.05"
+                                    IsSnapToTickEnabled="True"
+                                    Value="{Binding BufferingWidgetOpacity, UpdateSourceTrigger=PropertyChanged}" />
+                        </StackPanel>
+                        <StackPanel Grid.Row="6" Margin="0,12,0,0">
                             <TextBlock FontWeight="SemiBold" Text="Configured Game Executables" />
                             <TextBlock Margin="0,4,0,0"
                                        Foreground="#666"

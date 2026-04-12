@@ -26,6 +26,7 @@ public sealed class GameOverlayNotifier : IDisposable
     private ReplayCoordinatorSnapshot? _latestSnapshot;
     private CancellationTokenSource? _savedWidgetCts;
     private string _toggleBufferHotkeyLabel = HotkeyBinding.ToggleDefault.ToDisplayString();
+    private double _bufferingWidgetOpacity = AppSettings.BufferingWidgetDefaultOpacity;
 
     public void UpdateToggleHotkeyLabel(string hotkeyLabel)
     {
@@ -36,6 +37,15 @@ public sealed class GameOverlayNotifier : IDisposable
         if (_latestSnapshot is not null)
         {
             UpdateBufferingStatus(_latestSnapshot);
+        }
+    }
+
+    public void UpdateBufferingWidgetOpacity(double opacity)
+    {
+        _bufferingWidgetOpacity = ClampWidgetOpacity(opacity);
+        if (_bufferingStatusWindow is not null)
+        {
+            _bufferingStatusWindow.SetWidgetOpacity(_bufferingWidgetOpacity);
         }
     }
 
@@ -184,6 +194,8 @@ public sealed class GameOverlayNotifier : IDisposable
             _bufferingStatusWindow = new BufferingStatusWindow();
         }
 
+        _bufferingStatusWindow.SetWidgetOpacity(_bufferingWidgetOpacity);
+
         return _bufferingStatusWindow;
     }
 
@@ -195,6 +207,19 @@ public sealed class GameOverlayNotifier : IDisposable
         }
 
         return Math.Clamp(value, minValue, maxValue);
+    }
+
+    private static double ClampWidgetOpacity(double opacity)
+    {
+        if (double.IsNaN(opacity) || double.IsInfinity(opacity))
+        {
+            return AppSettings.BufferingWidgetDefaultOpacity;
+        }
+
+        return Math.Clamp(
+            opacity,
+            AppSettings.BufferingWidgetMinOpacity,
+            AppSettings.BufferingWidgetMaxOpacity);
     }
 
     private void ShowSavedWidgetState(CaptureTargetWindow? targetWindow)
@@ -525,6 +550,11 @@ public sealed class GameOverlayNotifier : IDisposable
             _titleText.Text = title;
             _statusText.Text = label;
             _activityDot.Fill = new SolidColorBrush(dotColor);
+        }
+
+        public void SetWidgetOpacity(double opacity)
+        {
+            Opacity = ClampWidgetOpacity(opacity);
         }
 
         private void StartPulse()
